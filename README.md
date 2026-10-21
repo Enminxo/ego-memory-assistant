@@ -1,79 +1,79 @@
-# Asistente de memoria episódica (prototipo)
+# Episodic memory assistant (prototype)
 
-Prototipo de un asistente que registra lo que hace una persona con una cámara llevable y responde preguntas sobre su pasado reciente: «¿dónde he dejado las llaves?», «¿he apagado el gas?». Está pensado para deterioro cognitivo leve y fases iniciales de Alzheimer.
+Prototype of an assistant that records what a person does with a wearable camera and answers questions about their recent past: "where did I leave my keys?", "did I turn off the stove?". It is aimed at mild cognitive impairment and early Alzheimer's disease.
 
 ```
-vídeo ─▶ clips de 15 s ─▶ [descriptor · VLM] ─▶ diario de texto con hora
-                                                        │
-                     pregunta ─▶ [lector · LLM] ◀───────┘─▶ respuesta + momento citado
+video ─▶ 15 s clips ─▶ [describer · VLM] ─▶ timestamped text diary
+                                                     │
+                  question ─▶ [reader · LLM] ◀───────┘─▶ answer + cited moment
 ```
 
-1. **Descriptor.** Un modelo de visión y lenguaje mira 8 fotogramas de cada clip y escribe una línea de diario en primera persona.
-2. **Memoria.** El diario se guarda como texto con marcas de tiempo (`memory.jsonl`). Es lo único que necesita el lector.
-3. **Lector.** Un modelo de lenguaje responde leyendo solo el diario y cita el momento en que se basa.
+1. **Describer.** A vision-language model looks at 8 frames of each clip and writes one first-person diary entry.
+2. **Memory.** The diary is stored as timestamped text (`memory.jsonl`). It is all the reader needs.
+3. **Reader.** A language model answers from the diary alone and cites the moment it relied on.
 
-La arquitectura sigue a Lando, Forte y Furnari, *Exploring Multimodal LMMs for Online Episodic Memory Question Answering on the Edge* (arXiv:2602.22455).
+The architecture follows Lando, Forte and Furnari, *Exploring Multimodal LMMs for Online Episodic Memory Question Answering on the Edge* (arXiv:2602.22455).
 
-## Instalación
+## Installation
 
 ```bash
 uv sync
 ```
 
-Los modelos se sirven con cualquier servidor compatible con la API de OpenAI. En el DGX se usa [Ollama](https://ollama.com):
+Models are served by any server with an OpenAI-compatible API. On the DGX Spark we use [Ollama](https://ollama.com):
 
 ```bash
-ollama pull gemma4:31b      # descriptor y lector
+ollama pull gemma4:31b      # describer and reader
 ```
 
-El servidor y los modelos se configuran en `configs/demo.yaml`. Para usar llama-server o vLLM basta con cambiar `base_url` y `model`.
+Server and models are set in `configs/demo.yaml`. To use llama-server or vLLM, change `base_url` and `model`.
 
-## Escenas de demostración
+## Demo scenes
 
-Son 4 clips de 8 minutos de [Ego4D](https://ego4d-data.org) con preguntas de QAEgo4D, una escena por necesidad: gas, llaves, medicación y cartera (`scripts/demo_scenes.yaml`). **Hace falta firmar la licencia de Ego4D** para descargar los vídeos.
+Four 8-minute clips from [Ego4D](https://ego4d-data.org) with QAEgo4D questions, one scene per need: stove, keys, medication and wallet (`scripts/demo_scenes.yaml`). **Downloading the videos requires signing the Ego4D license.**
 
 ```bash
-./scripts/make_demo_scenes.sh           # recorta los vídeos y crea scenarios/*.json
+./scripts/make_demo_scenes.sh           # cuts the videos and writes scenarios/*.json
 ```
 
-## Uso
+## Usage
 
 ```bash
-uv run egomem-build gas keys meds wallet           # vídeo -> diario (data/memories/<escena>/default/)
-uv run egomem-eval gas keys meds wallet            # acierto en preguntas de 4 opciones
-uv run egomem-eval gas keys meds wallet --no-memory   # control: el mismo lector sin diario
-uv run egomem-app                                  # demo web en http://localhost:8090
+uv run egomem-build gas keys meds wallet           # video -> diary (data/memories/<scene>/default/)
+uv run egomem-eval gas keys meds wallet            # accuracy on four-option questions
+uv run egomem-eval gas keys meds wallet --no-memory   # control: the same reader without a diary
+uv run egomem-app                                  # web demo at http://localhost:8090
 uv run pytest                                      # tests
 ```
 
-El control `--no-memory` es imprescindible. Las opciones incorrectas de QAEgo4D se generaron automáticamente y a menudo son absurdas («en el techo», «a quién le importa»), así que un modelo acierta bastante más que el 25 % del azar sin ver nada. Lo que demuestra que la memoria funciona es la diferencia con ese control.
+The `--no-memory` control is essential. QAEgo4D's wrong options were generated automatically and are often absurd ("on the ceiling", "who cares"), so a model scores well above the 25% chance level without seeing anything. What shows that the memory works is the gap to that control.
 
-En la evaluación el lector está obligado a elegir una letra (decodificación restringida a A-D). Si se le deja, con el diario delante se niega a elegir cuando el diario no menciona lo que se pregunta, y cada negativa cuenta como fallo solo para el brazo con diario.
+In the evaluation the reader must always pick a letter (decoding constrained to A-D). Left free, with the diary in front of it, it declines to choose when the diary does not mention what is asked, and each refusal counts as a miss only for the arm that has a diary.
 
-## Añadir una grabación propia
+## Adding your own recording
 
-Una escena es un JSON en `scenarios/` con el vídeo y sus preguntas (el formato está descrito en `src/egomem/scenarios.py`). Para una grabación propia basta con escribirlo a mano:
+A scene is a JSON file in `scenarios/` with the video and its questions (the format is described in `src/egomem/scenarios.py`). For your own recording, write it by hand:
 
 ```json
 {
-  "id": "pastilla", "title": "¿Me he tomado la pastilla?", "category": "medication",
-  "video": "data/scenes/pastilla.mp4",
+  "id": "pill", "title": "Did I take my pill?", "category": "medication",
+  "video": "data/scenes/pill.mp4",
   "questions": [{"id": "p1", "question": "Did I take my pill?", "answer": "yes",
                  "wrong_answers": ["no", "I took two", "I only opened the box"],
                  "t0": 95.0, "t1": 102.0, "category": "medication"}],
-  "demo_questions": [{"text": "¿Me he tomado la pastilla?", "expected": "sí"}]
+  "demo_questions": [{"text": "Did I take my pill?", "expected": "yes"}]
 }
 ```
 
-## Estructura
+## Layout
 
-| Fichero | Qué hace |
+| File | What it does |
 |---|---|
-| `src/egomem/sources.py` | Lee fotogramas de un vídeo en instantes concretos |
-| `src/egomem/clips.py` | Corta el vídeo en clips y elige qué fotogramas mira el descriptor |
-| `src/egomem/describer.py` | Clip → línea de diario (punto de enganche para otros modelos) |
-| `src/egomem/prompts.py` | Prompts del descriptor y del lector |
-| `src/egomem/memory.py` | El diario y los fotogramas de evidencia |
-| `src/egomem/reader.py` | Diario + pregunta → respuesta con citas |
-| `src/egomem/scenarios.py` | Formato de escena y creación desde Ego4D |
-| `src/egomem/build_memory.py`, `evaluate.py`, `app.py` | Los tres comandos |
+| `src/egomem/sources.py` | Reads frames from a video at given times |
+| `src/egomem/clips.py` | Cuts the video into clips and picks which frames the describer sees |
+| `src/egomem/describer.py` | Clip → diary entry (the hook for other models) |
+| `src/egomem/prompts.py` | Prompts of the describer and the reader |
+| `src/egomem/memory.py` | The diary and the evidence frames |
+| `src/egomem/reader.py` | Diary + question → answer with citations |
+| `src/egomem/scenarios.py` | Scene format and building scenes from Ego4D |
+| `src/egomem/build_memory.py`, `evaluate.py`, `app.py` | The three commands |

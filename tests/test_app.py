@@ -23,7 +23,7 @@ def make_app(tmp_path):
     (tmp_path / "data/scenes/s.mp4").write_bytes(b"0123456789" * 100)
     (tmp_path / "scenarios/s.json").write_text(json.dumps({
         "id": "s", "title": "Scene", "category": "objects", "video": "data/scenes/s.mp4",
-        "questions": [], "demo_questions": [{"text": "¿Dónde?", "expected": "table"}]}))
+        "questions": [], "demo_questions": [{"text": "Where?", "expected": "table"}]}))
     memory = TextualMemory(tmp_path / "data/memories/s/default/memory.jsonl")
     for i in range(3):
         memory.append(MemoryEntry(i, 15 * i, 15 * (i + 1), f"clip {i}", 1.0, 8))

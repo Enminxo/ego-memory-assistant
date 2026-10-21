@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Memoria episódica</title>
+<title>Episodic Memory</title>
 <style>
 :root {
   --bg: #f6f5f2; --panel: #ffffff; --line: #e3e0d9; --fg: #1d1d1b; --dim: #6f6b63;
@@ -70,12 +70,12 @@ form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; b
 </head>
 <body>
 <header>
-  <h1>Memoria episódica <span>· prototipo</span></h1>
+  <h1>Episodic memory <span>· prototype</span></h1>
   <div class="tabs" id="tabs"></div>
   <div class="mode" id="mode">
-    Memoria:
-    <button data-mode="now" class="on">hasta este instante</button>
-    <button data-mode="all">todo el vídeo</button>
+    Memory:
+    <button data-mode="now" class="on">up to now</button>
+    <button data-mode="all">whole video</button>
   </div>
 </header>
 <main>
@@ -83,23 +83,23 @@ form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; b
     <div class="panel">
       <video id="video" controls preload="metadata" playsinline></video>
       <div class="timeline" id="timeline"></div>
-      <div class="legend">Cada tramo es un clip de vídeo. Se colorea cuando su entrada del diario ya está escrita.</div>
+      <div class="legend">Each segment is a video clip. It fills in once its diary entry has been written.</div>
     </div>
     <div class="panel" style="margin-top:14px">
-      <h2>Lo que vio la cámara</h2>
-      <div class="evidence" id="evidence"><div class="muted">Pulsa una entrada del diario o un momento citado en una respuesta.</div></div>
+      <h2>What the camera saw</h2>
+      <div class="evidence" id="evidence"><div class="muted">Click a diary entry or a moment cited in an answer.</div></div>
     </div>
   </section>
   <section>
     <div class="panel">
-      <h2>Diario escrito por el modelo</h2>
+      <h2>Diary written by the model</h2>
       <div id="diary"></div>
     </div>
     <div class="panel" style="margin-top:14px">
-      <h2>Pregunta</h2>
+      <h2>Ask</h2>
       <div class="ask">
         <div class="chips" id="chips"></div>
-        <form id="form"><input type="text" id="q" placeholder="¿Dónde he dejado…?" autocomplete="off"><button>Preguntar</button></form>
+        <form id="form"><input type="text" id="q" placeholder="Where did I leave…?" autocomplete="off"><button>Ask</button></form>
         <div id="answers"></div>
       </div>
     </div>
@@ -135,15 +135,15 @@ async function load(id) {
   video.src = `/api/scenarios/${id}/video`;
   shown = -1; selected = null;
   $("answers").innerHTML = "";
-  $("evidence").innerHTML = '<div class="muted">Pulsa una entrada del diario o un momento citado en una respuesta.</div>';
+  $("evidence").innerHTML = '<div class="muted">Click a diary entry or a moment cited in an answer.</div>';
   $("chips").innerHTML = (current.demo_questions || []).map((q, i) =>
     `<button class="chip" data-i="${i}">${esc(q.text)}</button>`).join("");
   $("chips").onclick = (e) => {
     const q = current.demo_questions[e.target.dataset.i];
     if (!q) return;
     // "expected" comes from the QAEgo4D annotation; "checked" was verified by eye on the frames.
-    if (q.expected) ask(q.text, `respuesta anotada en QAEgo4D: ${q.expected}`);
-    else ask(q.text, q.checked ? `sin anotación; ${q.checked}` : undefined);
+    if (q.expected) ask(q.text, `QAEgo4D answer: ${q.expected}`);
+    else ask(q.text, q.checked ? `not annotated; ${q.checked}` : undefined);
   };
   drawTimeline();
   update();
@@ -173,8 +173,8 @@ function update() {
   const writing = entries.find((e) => e.t0 <= t && t < e.t1);
   $("diary").innerHTML = vis.map((e) =>
     `<div class="entry${selected === e.index ? " sel" : ""}" data-i="${e.index}"><time>${fmt(e.t0)}</time>${esc(e.text)}</div>`
-  ).join("") + (writing ? `<div class="entry pending"><time>${fmt(writing.t0)}</time>observando…</div>` : "")
-    + (vis.length === 0 && !writing ? '<div class="entry pending">Dale al play: el diario se escribe a medida que avanza el vídeo.</div>' : "");
+  ).join("") + (writing ? `<div class="entry pending"><time>${fmt(writing.t0)}</time>watching…</div>` : "")
+    + (vis.length === 0 && !writing ? '<div class="entry pending">Press play: the diary is written as the video advances.</div>' : "");
   $("diary").scrollTop = $("diary").scrollHeight;
 }
 
@@ -194,7 +194,7 @@ function showEvidence(entry, seek = true) {
   const shots = Array.from({length: entry.n_frames}, (_, i) =>
     `<img loading="lazy" src="/api/scenarios/${current.id}/frames/${entry.index}/${i}" alt="frame ${i + 1}">`).join("");
   $("evidence").innerHTML = `<div><b>${fmt(entry.t0)}–${fmt(entry.t1)}</b></div>`
-    + (shots ? `<div class="shots">${shots}</div>` : '<div class="muted">Los fotogramas no se guardaron en esta ejecución.</div>')
+    + (shots ? `<div class="shots">${shots}</div>` : '<div class="muted">Frames were not kept in this run.</div>')
     + `<div class="text">${esc(entry.text)}</div>`;
   [...$("diary").querySelectorAll(".entry")].forEach((el) => el.classList.toggle("sel", Number(el.dataset.i) === selected));
 }
@@ -203,7 +203,7 @@ async function ask(question, expected) {
   const t = mode === "now" ? (video.currentTime || 0) : null;
   const card = document.createElement("div");
   card.className = "qa";
-  card.innerHTML = `<div class="q">${esc(question)}</div><div class="a muted">pensando…</div>`;
+  card.innerHTML = `<div class="q">${esc(question)}</div><div class="a muted">thinking…</div>`;
   $("answers").appendChild(card);
   const res = await fetch("/api/ask", {method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({scenario: current.id, question, t})});
@@ -221,8 +221,8 @@ async function ask(question, expected) {
     const at = Number(e.target.dataset.t);
     showEvidence(entries.find((x) => x.t0 <= at && at < x.t1) || entries[entries.length - 1]);
   };
-  const scope = t === null ? "todo el vídeo" : `hasta ${fmt(t)}`;
-  card.insertAdjacentHTML("beforeend", `<div class="meta">${a.n_entries} entradas leídas (${scope}) · ${a.latency_s} s`
+  const scope = t === null ? "whole video" : `up to ${fmt(t)}`;
+  card.insertAdjacentHTML("beforeend", `<div class="meta">${a.n_entries} entries read (${scope}) · ${a.latency_s} s`
     + (expected ? ` · <span class="expected">${esc(expected)}</span>` : "") + "</div>");
 }
 

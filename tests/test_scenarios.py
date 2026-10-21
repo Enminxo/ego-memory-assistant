@@ -16,7 +16,7 @@ def test_scenario_roundtrip(tmp_path):
     scenario = Scenario(id="s", title="t", category="objects", video="data/scenes/s.mp4",
                         questions=[Question(id="q1", question="Where?", answer="table",
                                             wrong_answers=["a", "b", "c"], t0=1.0, t1=2.0)],
-                        demo_questions=[{"text": "¿Dónde?", "expected": "table"}])
+                        demo_questions=[{"text": "Where?", "expected": "table"}])
     scenario.save(tmp_path / "s.json")
     loaded = load_scenario(tmp_path / "s.json")
     assert loaded == scenario
