@@ -1,0 +1,21 @@
+# Configuration of the demo run on the DGX Spark (Ollama, OpenAI-compatible API).
+# The same file pointed at llama-server or vLLM only needs base_url and model changed.
+
+base_url: http://localhost:11434/v1
+scenarios_dir: scenarios
+data_dir: data            # memories are written to data/memories/<scenario>/<tag>/
+
+describer:
+  model: gemma4:31b       # gemma4:e4b is ~4x faster but invents objects (smoke test, 2026-10-21)
+  clip_sec: 15
+  n_frames: 8             # one frame every ~1.9 s
+  max_tokens: 160
+  max_words: 60
+  temperature: 0.2
+  seed: 0
+  keep_frames: true       # store the frames of each entry as evidence for the app
+
+reader:
+  model: gemma4:31b
+  max_tokens: 200
+  temperature: 0.0

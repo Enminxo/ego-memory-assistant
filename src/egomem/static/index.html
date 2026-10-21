@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Memoria episódica</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --line: #e3e0d9; --fg: #1d1d1b; --dim: #6f6b63;
+  --accent: #d9622b; --accent-soft: #fbe9df; --ok: #2f7d4f; --chip: #f0eee9;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141412; --panel: #1d1c1a; --line: #33312d; --fg: #ecebe7; --dim: #9a958c;
+    --accent: #f08a52; --accent-soft: #3a2519; --ok: #6cc28f; --chip: #2a2926;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+       font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
+         padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+h1 { font-size: 16px; margin: 0; font-weight: 650; }
+h1 span { color: var(--dim); font-weight: 400; }
+.tabs, .mode { display: flex; gap: 6px; flex-wrap: wrap; }
+.tabs button, .mode button, .chip {
+  border: 1px solid var(--line); background: var(--chip); color: var(--fg);
+  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.tabs button.on, .mode button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mode { margin-left: auto; align-items: center; color: var(--dim); font-size: 13px; }
+main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+       gap: 14px; padding: 14px 16px; align-items: start; }
+@media (max-width: 920px) { main { grid-template-columns: 1fr; } .mode { margin-left: 0; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.panel h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+            margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line); font-weight: 600; }
+video { width: 100%; display: block; background: #000; max-height: 56vh; }
+.timeline { position: relative; height: 10px; margin: 10px 12px; background: var(--chip); border-radius: 5px; }
+.timeline .seg { position: absolute; top: 0; bottom: 0; border-right: 1px solid var(--panel); }
+.timeline .seg.done { background: var(--accent); opacity: .55; }
+.timeline .head { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); }
+.legend { padding: 0 12px 10px; color: var(--dim); font-size: 12px; }
+.evidence { padding: 10px 12px 12px; }
+.evidence .shots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.evidence img { width: 100%; border-radius: 4px; display: block; border: 1px solid var(--line); }
+.evidence .text { margin-top: 8px; }
+.muted { color: var(--dim); font-size: 13px; }
+#diary { max-height: 34vh; overflow-y: auto; padding: 4px 0; }
+.entry { padding: 7px 12px; border-left: 3px solid transparent; cursor: pointer; }
+.entry:hover { background: var(--chip); }
+.entry.sel { border-left-color: var(--accent); background: var(--accent-soft); }
+.entry time { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; margin-right: 6px; font-size: 13px; }
+.entry.pending { color: var(--dim); font-style: italic; cursor: default; }
+.ask { padding: 10px 12px 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+form { display: flex; gap: 8px; }
+input[type=text] { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 8px;
+                   border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; background: var(--accent);
+              color: #fff; cursor: pointer; }
+#answers { display: flex; flex-direction: column-reverse; gap: 10px; margin-top: 12px; }
+.qa { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+.qa .q { font-weight: 600; }
+.qa .a { margin-top: 4px; }
+.qa .meta { margin-top: 6px; color: var(--dim); font-size: 12px; }
+.qa .expected { color: var(--ok); }
+.cite { border: 0; background: var(--accent-soft); color: var(--accent); border-radius: 4px;
+        padding: 0 4px; font: inherit; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Memoria episódica <span>· prototipo</span></h1>
+  <div class="tabs" id="tabs"></div>
+  <div class="mode" id="mode">
+    Memoria:
+    <button data-mode="now" class="on">hasta este instante</button>
+    <button data-mode="all">todo el vídeo</button>
+  </div>
+</header>
+<main>
+  <section>
+    <div class="panel">
+      <video id="video" controls preload="metadata" playsinline></video>
+      <div class="timeline" id="timeline"></div>
+      <div class="legend">Cada tramo es un clip de vídeo. Se colorea cuando su entrada del diario ya está escrita.</div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h2>Lo que vio la cámara</h2>
+      <div class="evidence" id="evidence"><div class="muted">Pulsa una entrada del diario o un momento citado en una respuesta.</div></div>
+    </div>
+  </section>
+  <section>
+    <div class="panel">
+      <h2>Diario escrito por el modelo</h2>
+      <div id="diary"></div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h2>Pregunta</h2>
+      <div class="ask">
+        <div class="chips" id="chips"></div>
+        <form id="form"><input type="text" id="q" placeholder="¿Dónde he dejado…?" autocomplete="off"><button>Preguntar</button></form>
+        <div id="answers"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+let scenarios = [], current = null, entries = [], mode = "now", shown = -1, selected = null;
+
+const fmt = (t) => {
+  const s = Math.round(t);
+  return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+};
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+async function init() {
+  scenarios = await (await fetch("/api/scenarios")).json();
+  $("tabs").innerHTML = scenarios.map((s) => `<button data-id="${s.id}">${esc(s.title)}</button>`).join("");
+  $("tabs").onclick = (e) => { if (e.target.dataset.id) load(e.target.dataset.id); };
+  $("mode").onclick = (e) => {
+    if (!e.target.dataset.mode) return;
+    mode = e.target.dataset.mode;
+    [...$("mode").querySelectorAll("button")].forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+  };
+  if (scenarios.length) load(scenarios[0].id);
+}
+
+async function load(id) {
+  current = scenarios.find((s) => s.id === id);
+  [...$("tabs").children].forEach((b) => b.classList.toggle("on", b.dataset.id === id));
+  entries = (await (await fetch(`/api/scenarios/${id}/memory`)).json()).entries;
+  video.src = `/api/scenarios/${id}/video`;
+  shown = -1; selected = null;
+  $("answers").innerHTML = "";
+  $("evidence").innerHTML = '<div class="muted">Pulsa una entrada del diario o un momento citado en una respuesta.</div>';
+  $("chips").innerHTML = (current.demo_questions || []).map((q, i) =>
+    `<button class="chip" data-i="${i}">${esc(q.text)}</button>`).join("");
+  $("chips").onclick = (e) => {
+    const q = current.demo_questions[e.target.dataset.i];
+    if (!q) return;
+    // "expected" comes from the QAEgo4D annotation; "checked" was verified by eye on the frames.
+    if (q.expected) ask(q.text, `respuesta anotada en QAEgo4D: ${q.expected}`);
+    else ask(q.text, q.checked ? `sin anotación; ${q.checked}` : undefined);
+  };
+  drawTimeline();
+  update();
+}
+
+function visibleEntries() {
+  const t = video.currentTime || 0;
+  return entries.filter((e) => e.t1 <= t + 1e-6);
+}
+
+function drawTimeline() {
+  const dur = entries.length ? entries[entries.length - 1].t1 : 1;
+  $("timeline").innerHTML = entries.map((e) =>
+    `<div class="seg" data-i="${e.index}" style="left:${100 * e.t0 / dur}%;width:${100 * (e.t1 - e.t0) / dur}%"></div>`
+  ).join("") + '<div class="head" id="head"></div>';
+}
+
+function update() {
+  const t = video.currentTime || 0;
+  const dur = entries.length ? entries[entries.length - 1].t1 : 1;
+  const head = $("head");
+  if (head) head.style.left = `${Math.min(100, 100 * t / dur)}%`;
+  const vis = visibleEntries();
+  if (vis.length === shown) return;
+  shown = vis.length;
+  [...$("timeline").querySelectorAll(".seg")].forEach((s, i) => s.classList.toggle("done", i < vis.length));
+  const writing = entries.find((e) => e.t0 <= t && t < e.t1);
+  $("diary").innerHTML = vis.map((e) =>
+    `<div class="entry${selected === e.index ? " sel" : ""}" data-i="${e.index}"><time>${fmt(e.t0)}</time>${esc(e.text)}</div>`
+  ).join("") + (writing ? `<div class="entry pending"><time>${fmt(writing.t0)}</time>observando…</div>` : "")
+    + (vis.length === 0 && !writing ? '<div class="entry pending">Dale al play: el diario se escribe a medida que avanza el vídeo.</div>' : "");
+  $("diary").scrollTop = $("diary").scrollHeight;
+}
+
+$("diary").onclick = (e) => {
+  const el = e.target.closest(".entry");
+  if (!el || el.classList.contains("pending")) return;
+  const entry = entries.find((x) => x.index === Number(el.dataset.i));
+  showEvidence(entry, false);
+};
+
+function showEvidence(entry, seek = true) {
+  if (!entry) return;
+  selected = entry.index;
+  // Jump to the end of the clip, so its entry is already written in the diary; the
+  // evidence panel shows what the camera saw during it.
+  if (seek) { video.currentTime = entry.t1 + 0.01; shown = -1; }
+  const shots = Array.from({length: entry.n_frames}, (_, i) =>
+    `<img loading="lazy" src="/api/scenarios/${current.id}/frames/${entry.index}/${i}" alt="frame ${i + 1}">`).join("");
+  $("evidence").innerHTML = `<div><b>${fmt(entry.t0)}–${fmt(entry.t1)}</b></div>`
+    + (shots ? `<div class="shots">${shots}</div>` : '<div class="muted">Los fotogramas no se guardaron en esta ejecución.</div>')
+    + `<div class="text">${esc(entry.text)}</div>`;
+  [...$("diary").querySelectorAll(".entry")].forEach((el) => el.classList.toggle("sel", Number(el.dataset.i) === selected));
+}
+
+async function ask(question, expected) {
+  const t = mode === "now" ? (video.currentTime || 0) : null;
+  const card = document.createElement("div");
+  card.className = "qa";
+  card.innerHTML = `<div class="q">${esc(question)}</div><div class="a muted">pensando…</div>`;
+  $("answers").appendChild(card);
+  const res = await fetch("/api/ask", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({scenario: current.id, question, t})});
+  const a = await res.json();
+  if (!res.ok) { card.querySelector(".a").textContent = a.detail || "error"; return; }
+  const text = esc(a.text).replace(/\[?(\d{1,2}:[0-5]\d)(\s*[-–]\s*\d{1,2}:[0-5]\d)?\]?/g, (m, start) => {
+    const [mm, ss] = start.split(":").map(Number);
+    return `<button class="cite" data-t="${mm * 60 + ss}">${m}</button>`;
+  });
+  const a_el = card.querySelector(".a");
+  a_el.classList.remove("muted");
+  a_el.innerHTML = text;
+  a_el.onclick = (e) => {
+    if (!e.target.dataset.t) return;
+    const at = Number(e.target.dataset.t);
+    showEvidence(entries.find((x) => x.t0 <= at && at < x.t1) || entries[entries.length - 1]);
+  };
+  const scope = t === null ? "todo el vídeo" : `hasta ${fmt(t)}`;
+  card.insertAdjacentHTML("beforeend", `<div class="meta">${a.n_entries} entradas leídas (${scope}) · ${a.latency_s} s`
+    + (expected ? ` · <span class="expected">${esc(expected)}</span>` : "") + "</div>");
+}
+
+$("form").onsubmit = (e) => {
+  e.preventDefault();
+  const q = $("q").value.trim();
+  if (q) { ask(q); $("q").value = ""; }
+};
+video.addEventListener("timeupdate", update);
+video.addEventListener("seeked", () => { shown = -1; update(); });
+// Also poll: a seek made before the video has loaded fires no events, and the
+// diary must still follow currentTime.
+setInterval(update, 500);
+init();
+</script>
+</body>
+</html>

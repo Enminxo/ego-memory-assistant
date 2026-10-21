@@ -1,0 +1,41 @@
+# The four demo scenes: Ego4D NLQ clips (8 min each) chosen because they contain
+# QAEgo4D questions in the categories of the project proposal.
+# demo_questions are the buttons shown in the app; "expected" is the QAEgo4D answer.
+# In each scene the first ones are answered correctly from the diary (open answer checked on
+# 2026-10-21 with gemma4:31b); the last ones fail, on purpose, to show where the diary falls short.
+scenes:
+  - id: gas
+    title: "Cocina: ¿he apagado el fuego?"
+    category: appliances
+    clip_uid: d6f53591-87e7-49c2-83c6-004da51c2a7a
+    demo_questions:
+      - {text: "¿Cuántos vasos de agua he echado en la olla?", expected: "three"}
+      - {text: "¿Dónde he puesto la olla después de sacarla del cajón?", expected: "on the cooker"}
+      - {text: "¿Cuántos tipos de verdura he cortado?", expected: "three"}
+      - {text: "¿He apagado el fuego?", expected: "no"}           # fails: misreads touching the panel
+  - id: keys
+    title: "En casa: ¿dónde he dejado las llaves?"
+    category: objects
+    clip_uid: 6b92c1bc-488b-40bb-bd4d-dcf7e08007c7
+    demo_questions:
+      - {text: "¿Me he dejado abierta la puerta de atrás?", expected: "yes"}
+      - {text: "¿Dónde he dejado las llaves?", expected: "on the table"}   # fails: blurred frame
+      - {text: "¿Dónde está mi móvil?", expected: "on the table"}          # fails
+  - id: meds
+    title: "Rutina de mañana: medicación"
+    category: medication
+    clip_uid: 7f02b942-1059-4360-9a46-fca699b25627
+    demo_questions:
+      # Not a QAEgo4D question: checked by eye on the frames (pill bottle, hand, glass of water at 06:45-07:00).
+      - {text: "¿Me he tomado la pastilla?", checked: "sí, a las 06:45 (comprobado a ojo en los fotogramas)"}
+      - {text: "¿Cuántos botes de medicamentos he abierto?", expected: "three"}   # says two
+      - {text: "¿Me he dejado las persianas abiertas?", expected: "yes"}         # half: adjusted, state unknown
+      - {text: "¿A qué perro le he dado de comer el último?", expected: "black with white dot"}  # fails
+  - id: wallet
+    title: "Llegar a casa: ¿dónde está la cartera?"
+    category: objects
+    clip_uid: 1c865785-9ac6-4f16-baa4-97405aacad6a
+    demo_questions:
+      - {text: "¿Dónde he fregado los cacharros?", expected: "at the kitchen sink"}
+      - {text: "¿Qué he sacado de la nevera?", expected: "a plate"}              # half: opened it, content unclear
+      - {text: "¿Dónde he guardado la cartera?", expected: "at the drawer"}      # fails: wrote keys and phone
