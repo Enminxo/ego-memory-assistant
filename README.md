@@ -12,7 +12,10 @@ video ─▶ 15 s clips ─▶ [describer · VLM] ─▶ timestamped text diary
 2. **Memory.** The diary is stored as timestamped text (`memory.jsonl`). It is all the reader needs.
 3. **Reader.** A language model answers from the diary alone and cites the moment it relied on.
 
-The architecture follows Lando, Forte and Furnari, *Exploring Multimodal LMMs for Online Episodic Memory Question Answering on the Edge* (arXiv:2602.22455).
+The reference implementations are two papers from Antonino Furnari's group at the University of Catania:
+
+- Lando, Forte, Farinella and Furnari, [*How Far Can Off-the-Shelf Multimodal Large Language Models Go in Online Episodic Memory Question Answering?*](https://arxiv.org/abs/2506.16450), arXiv:2506.16450, 2025.
+- Lando, Forte and Furnari, [*Exploring Multimodal LMMs for Online Episodic Memory Question Answering on the Edge*](https://arxiv.org/abs/2602.22455), arXiv:2602.22455, 2026. The prompts and the four-option evaluation follow this one.
 
 ## Installation
 
