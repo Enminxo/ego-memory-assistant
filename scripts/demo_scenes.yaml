@@ -22,7 +22,7 @@ scenes:
       - {text: "Where did I leave my keys?", expected: "on the table"}   # fails: blurred frame
       - {text: "Where is my phone?", expected: "on the table"}          # fails
   - id: meds
-    title: "Morning routine: medication"
+    title: "Bathroom routine: medication"
     category: medication
     clip_uid: 7f02b942-1059-4360-9a46-fca699b25627
     demo_questions:
