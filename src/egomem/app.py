@@ -71,6 +71,7 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     def list_scenarios() -> list[dict]:
         return [{"id": s.id, "title": s.title, "category": s.category,
                  "demo_questions": s.demo_questions, "live": s.live,
+                 "ended": s.live and "ended" in s.source,
                  "n_entries": len(load_memory(s.id))}
                 for s in current_scenarios().values()]
 

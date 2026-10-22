@@ -170,6 +170,9 @@ def run_live(config: dict, source: NeonLiveSource, scene_id: str, title: str,
         if record:
             source.device.recording_stop_and_save()
             print("recording saved on the phone")
+        # So the app stops showing the session as still being watched.
+        scenario.source["ended"] = datetime.now().isoformat(timespec="seconds")
+        scenario.save(Path(config["scenarios_dir"]) / f"{scene_id}.json")
         print(f"{scene_id}: {session.summary()}")
     return session
 

@@ -203,12 +203,13 @@ function update() {
   [...$("timeline").querySelectorAll(".seg")].forEach((s, i) => s.classList.toggle("done", i < vis.length));
   const live = current && current.live;
   // Live, the next clip is always being watched or described; replayed, it is the one under the playhead.
-  const writing = live ? {t0: vis.length ? vis[vis.length - 1].t1 : 0}
+  const writing = live ? (current.ended ? null : {t0: vis.length ? vis[vis.length - 1].t1 : 0})
                        : entries.find((e) => e.t0 <= t && t < e.t1);
   $("diary").innerHTML = vis.map((e) =>
     `<div class="entry${selected === e.index ? " sel" : ""}" data-i="${e.index}"><time>${fmt(e.t0)}</time>${esc(e.text)}</div>`
   ).join("") + (writing ? `<div class="entry pending"><time>${fmt(writing.t0)}</time>watching…</div>` : "")
-    + (vis.length === 0 && !writing ? '<div class="entry pending">Press play: the diary is written as the video advances.</div>' : "");
+    + (live && current.ended ? '<div class="entry pending">Session ended.</div>' : "")
+    + (vis.length === 0 && !writing && !live ? '<div class="entry pending">Press play: the diary is written as the video advances.</div>' : "");
   $("diary").scrollTop = $("diary").scrollHeight;
 }
 

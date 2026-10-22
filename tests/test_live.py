@@ -4,9 +4,10 @@ import numpy as np
 import pytest
 
 from egomem.clips import frame_offsets
-from egomem.live import LiveSession
+from egomem.live import LiveSession, run_live
 from egomem.llm import ChatResult
-from egomem.memory import TextualMemory
+from egomem.memory import EvidenceStore, TextualMemory
+from egomem.scenarios import load_scenario
 
 
 class FakeClock:
@@ -91,3 +92,19 @@ def test_a_failing_camera_ends_the_session_with_its_error():
                           clip_sec=0.05, n_frames=1, log=quiet)
     with pytest.raises(TimeoutError):
         session.run(n_clips=3)
+
+
+def test_run_live_writes_a_live_scenario_and_marks_its_end(tmp_path, monkeypatch):
+    monkeypatch.setattr("egomem.live.make_describer", lambda config: FakeDescriber())
+    config = {"scenarios_dir": str(tmp_path / "scenarios"), "data_dir": str(tmp_path / "data"),
+              "base_url": "http://unused",
+              "describer": {"model": "fake", "clip_sec": 0.1, "n_frames": 2, "keep_frames": True}}
+    run_live(config, StaticSource(), "live-t", "Live", None, minutes=0.3 / 60, record=False)
+
+    scenario = load_scenario(tmp_path / "scenarios/live-t.json")
+    assert scenario.live and scenario.video is None and "ended" in scenario.source
+    out = tmp_path / "data/memories/live-t/default"
+    assert len(TextualMemory.load(out / "memory.jsonl")) == 3
+    assert EvidenceStore(out / "frames").count(0) == 2
+    with pytest.raises(SystemExit):  # an existing diary is never appended to by a new session
+        run_live(config, StaticSource(), "live-t", "Live", None, minutes=0.3 / 60, record=False)

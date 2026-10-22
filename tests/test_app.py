@@ -66,7 +66,8 @@ def test_live_scenario_appears_after_start_and_has_no_video(tmp_path):
 
     listed = {s["id"]: s for s in client.get("/api/scenarios").json()}
     assert listed["live-1"]["live"] and listed["live-1"]["n_entries"] == 1
-    assert not listed["s"]["live"]
+    assert not listed["live-1"]["ended"]
+    assert not listed["s"]["live"] and not listed["s"]["ended"]
     assert client.get("/api/scenarios/live-1/video").status_code == 404
     client.post("/api/ask", json={"scenario": "live-1", "question": "Where are my keys?"})
     assert len(reader.seen) == 1
