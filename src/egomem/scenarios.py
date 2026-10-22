@@ -77,13 +77,16 @@ class Scenario:
     id: str
     title: str
     category: str
-    video: str
+    # None for a live session (egomem-live): the frames are described as they
+    # arrive and only the diary and its evidence frames are kept.
+    video: str | None = None
     questions: list[Question] = field(default_factory=list)
     demo_questions: list[dict] = field(default_factory=list)
     source: dict = field(default_factory=dict)
+    live: bool = False
 
-    def video_path(self, root: Path) -> Path:
-        return (root / self.video).resolve()
+    def video_path(self, root: Path) -> Path | None:
+        return (root / self.video).resolve() if self.video is not None else None
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

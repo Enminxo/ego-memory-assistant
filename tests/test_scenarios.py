@@ -22,6 +22,14 @@ def test_scenario_roundtrip(tmp_path):
     assert loaded == scenario
 
 
+def test_live_scenario_roundtrip_without_video(tmp_path):
+    scenario = Scenario(id="live-1", title="Live", category="other", live=True,
+                        source={"neon": "192.168.43.1"})
+    scenario.save(tmp_path / "live-1.json")
+    loaded = load_scenario(tmp_path / "live-1.json")
+    assert loaded == scenario and loaded.video is None and loaded.video_path(tmp_path) is None
+
+
 def test_shuffled_options_deterministic_and_track_answer():
     options, correct = shuffled_options("q1", "table", ["a", "b", "c"], seed=0)
     assert options[correct] == "table" and sorted(options) == ["a", "b", "c", "table"]

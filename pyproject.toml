@@ -12,6 +12,13 @@ dependencies = [
     "uvicorn",
 ]
 
+[project.optional-dependencies]
+# Pupil Labs Neon glasses as the camera (egomem-neon, egomem-live).
+neon = [
+    "pupil-labs-realtime-api>=1.9",
+    "pupil-labs-neon-recording>=2.1",
+]
+
 [dependency-groups]
 dev = [
     "httpx",
@@ -23,6 +30,8 @@ egomem-scene = "egomem.scenarios:main"
 egomem-build = "egomem.build_memory:main"
 egomem-eval = "egomem.evaluate:main"
 egomem-app = "egomem.app:main"
+egomem-neon = "egomem.neon:main"
+egomem-live = "egomem.live:main"
 
 [build-system]
 requires = ["hatchling"]

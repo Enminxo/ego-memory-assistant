@@ -66,6 +66,11 @@ form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; b
 .qa .expected { color: var(--ok); }
 .cite { border: 0; background: var(--accent-soft); color: var(--accent); border-radius: 4px;
         padding: 0 4px; font: inherit; font-weight: 600; cursor: pointer; }
+/* A live session (egomem-live) has no video: the diary grows as the glasses stream. */
+.live-note { display: none; padding: 12px; }
+body.live video, body.live .timeline, body.live .legend, body.live #mode { display: none; }
+body.live .live-note { display: block; }
+.dot { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -84,6 +89,7 @@ form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; b
       <video id="video" controls preload="metadata" playsinline></video>
       <div class="timeline" id="timeline"></div>
       <div class="legend">Each segment is a video clip. It fills in once its diary entry has been written.</div>
+      <div class="live-note"><b class="dot">●</b> Live from the glasses. A new diary entry is written after each clip; its frames appear below.</div>
     </div>
     <div class="panel" style="margin-top:14px">
       <h2>What the camera saw</h2>
@@ -109,6 +115,7 @@ form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; b
 const $ = (id) => document.getElementById(id);
 const video = $("video");
 let scenarios = [], current = null, entries = [], mode = "now", shown = -1, selected = null;
+let poll = null;  // refreshes the diary of a live session
 
 const fmt = (t) => {
   const s = Math.round(t);
@@ -118,7 +125,8 @@ const esc = (s) => s.replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">":
 
 async function init() {
   scenarios = await (await fetch("/api/scenarios")).json();
-  $("tabs").innerHTML = scenarios.map((s) => `<button data-id="${s.id}">${esc(s.title)}</button>`).join("");
+  $("tabs").innerHTML = scenarios.map((s) =>
+    `<button data-id="${s.id}">${s.live ? "● " : ""}${esc(s.title)}</button>`).join("");
   $("tabs").onclick = (e) => { if (e.target.dataset.id) load(e.target.dataset.id); };
   $("mode").onclick = (e) => {
     if (!e.target.dataset.mode) return;
@@ -132,7 +140,15 @@ async function load(id) {
   current = scenarios.find((s) => s.id === id);
   [...$("tabs").children].forEach((b) => b.classList.toggle("on", b.dataset.id === id));
   entries = (await (await fetch(`/api/scenarios/${id}/memory`)).json()).entries;
-  video.src = `/api/scenarios/${id}/video`;
+  clearInterval(poll);
+  document.body.classList.toggle("live", !!current.live);
+  if (current.live) {
+    video.removeAttribute("src");
+    video.load();
+    poll = setInterval(refresh, 3000);
+  } else {
+    video.src = `/api/scenarios/${id}/video`;
+  }
   shown = -1; selected = null;
   $("answers").innerHTML = "";
   $("evidence").innerHTML = '<div class="muted">Click a diary entry or a moment cited in an answer.</div>';
@@ -147,9 +163,24 @@ async function load(id) {
   };
   drawTimeline();
   update();
+  if (current.live && entries.length) showEvidence(entries[entries.length - 1], false);
+}
+
+async function refresh() {
+  if (!current || !current.live) return;
+  const id = current.id;
+  const fresh = (await (await fetch(`/api/scenarios/${id}/memory`)).json()).entries;
+  if (current.id !== id || fresh.length === entries.length) return;
+  // Follow the newest clip, unless an older one was picked to look at.
+  const following = selected === null || (entries.length && selected === entries[entries.length - 1].index);
+  entries = fresh;
+  shown = -1;
+  update();
+  if (following) showEvidence(entries[entries.length - 1], false);
 }
 
 function visibleEntries() {
+  if (current && current.live) return entries;  // everything written so far
   const t = video.currentTime || 0;
   return entries.filter((e) => e.t1 <= t + 1e-6);
 }
@@ -170,7 +201,10 @@ function update() {
   if (vis.length === shown) return;
   shown = vis.length;
   [...$("timeline").querySelectorAll(".seg")].forEach((s, i) => s.classList.toggle("done", i < vis.length));
-  const writing = entries.find((e) => e.t0 <= t && t < e.t1);
+  const live = current && current.live;
+  // Live, the next clip is always being watched or described; replayed, it is the one under the playhead.
+  const writing = live ? {t0: vis.length ? vis[vis.length - 1].t1 : 0}
+                       : entries.find((e) => e.t0 <= t && t < e.t1);
   $("diary").innerHTML = vis.map((e) =>
     `<div class="entry${selected === e.index ? " sel" : ""}" data-i="${e.index}"><time>${fmt(e.t0)}</time>${esc(e.text)}</div>`
   ).join("") + (writing ? `<div class="entry pending"><time>${fmt(writing.t0)}</time>watching…</div>` : "")
@@ -190,7 +224,7 @@ function showEvidence(entry, seek = true) {
   selected = entry.index;
   // Jump to the end of the clip, so its entry is already written in the diary; the
   // evidence panel shows what the camera saw during it.
-  if (seek) { video.currentTime = entry.t1 + 0.01; shown = -1; }
+  if (seek && !current.live) { video.currentTime = entry.t1 + 0.01; shown = -1; }
   const shots = Array.from({length: entry.n_frames}, (_, i) =>
     `<img loading="lazy" src="/api/scenarios/${current.id}/frames/${entry.index}/${i}" alt="frame ${i + 1}">`).join("");
   $("evidence").innerHTML = `<div><b>${fmt(entry.t0)}–${fmt(entry.t1)}</b></div>`
@@ -200,7 +234,8 @@ function showEvidence(entry, seek = true) {
 }
 
 async function ask(question, expected) {
-  const t = mode === "now" ? (video.currentTime || 0) : null;
+  // Live, the diary is already "up to now": ask about all of it.
+  const t = mode === "now" && !current.live ? (video.currentTime || 0) : null;
   const card = document.createElement("div");
   card.className = "qa";
   card.innerHTML = `<div class="q">${esc(question)}</div><div class="a muted">thinking…</div>`;
@@ -221,7 +256,7 @@ async function ask(question, expected) {
     const at = Number(e.target.dataset.t);
     showEvidence(entries.find((x) => x.t0 <= at && at < x.t1) || entries[entries.length - 1]);
   };
-  const scope = t === null ? "whole video" : `up to ${fmt(t)}`;
+  const scope = current.live ? "live diary" : t === null ? "whole video" : `up to ${fmt(t)}`;
   card.insertAdjacentHTML("beforeend", `<div class="meta">${a.n_entries} entries read (${scope}) · ${a.latency_s} s`
     + (expected ? ` · <span class="expected">${esc(expected)}</span>` : "") + "</div>");
 }

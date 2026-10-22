@@ -42,10 +42,15 @@ def entry_at(entries: list[MemoryEntry], t: float) -> MemoryEntry | None:
 def create_app(config: dict, tag: str, reader: Reader | None = None,
                root: Path = Path(".")) -> FastAPI:
     app = FastAPI(title="Episodic memory assistant")
-    scenarios: dict[str, Scenario] = load_scenarios(root / config["scenarios_dir"])
     reader = reader or make_reader(config)
 
+    def current_scenarios() -> dict[str, Scenario]:
+        # Read on every request, like the diaries: a live session (egomem-live)
+        # adds its scenario while the app is already running.
+        return load_scenarios(root / config["scenarios_dir"])
+
     def get_scenario(scenario_id: str) -> Scenario:
+        scenarios = current_scenarios()
         if scenario_id not in scenarios:
             raise HTTPException(404, f"unknown scenario {scenario_id}")
         return scenarios[scenario_id]
@@ -65,9 +70,9 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     @app.get("/api/scenarios")
     def list_scenarios() -> list[dict]:
         return [{"id": s.id, "title": s.title, "category": s.category,
-                 "demo_questions": s.demo_questions,
+                 "demo_questions": s.demo_questions, "live": s.live,
                  "n_entries": len(load_memory(s.id))}
-                for s in scenarios.values()]
+                for s in current_scenarios().values()]
 
     @app.get("/api/scenarios/{scenario_id}/memory")
     def memory(scenario_id: str) -> dict:
@@ -81,6 +86,8 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     @app.get("/api/scenarios/{scenario_id}/video")
     def video(scenario_id: str) -> FileResponse:
         path = get_scenario(scenario_id).video_path(root)
+        if path is None:
+            raise HTTPException(404, f"{scenario_id} is a live session and has no video")
         if not path.exists():
             raise HTTPException(404, f"video missing: {path}")
         # FileResponse honours Range requests, which the <video> element

@@ -16,15 +16,36 @@ import argparse
 import json
 from pathlib import Path
 
-from egomem.clips import clip_bounds, iter_clips
+from egomem.clips import Clip, clip_bounds, iter_clips
 from egomem.config import load_config, make_describer, memory_dir
+from egomem.describer import Describer
 from egomem.memory import EvidenceStore, MemoryEntry, TextualMemory, fmt_time
 from egomem.scenarios import load_scenario
 from egomem.sources import VideoFileSource
 
 
+def describe_clip(describer: Describer, clip: Clip, memory: TextualMemory,
+                  evidence: EvidenceStore | None) -> MemoryEntry:
+    """Describe one clip and append it to the diary, with its frames as evidence.
+
+    Shared by the offline build and the live session (live.py), so a diary
+    written from a file and one written from the glasses are the same thing.
+    """
+    result = describer.describe(clip.frames, clip.t0, clip.t1)
+    entry = MemoryEntry(index=clip.index, t0=round(clip.t0, 2), t1=round(clip.t1, 2),
+                        text=result.text, latency_s=round(result.latency_s, 2),
+                        n_frames=len(clip.frames))
+    memory.append(entry)
+    if evidence is not None:
+        evidence.save(clip.index, clip.frames)
+    return entry
+
+
 def build(config: dict, scenario_id: str, tag: str, limit: int | None = None) -> Path:
     scenario = load_scenario(Path(config["scenarios_dir"]) / f"{scenario_id}.json")
+    if scenario.video is None:
+        raise SystemExit(f"{scenario_id} has no video: it is a live session, "
+                         "and egomem-live already wrote its diary")
     d = config["describer"]
     out = memory_dir(config, scenario_id, tag)
     out.mkdir(parents=True, exist_ok=True)
@@ -43,16 +64,10 @@ def build(config: dict, scenario_id: str, tag: str, limit: int | None = None) ->
     for clip in iter_clips(source, d["clip_sec"], d["n_frames"], skip=done):
         if limit is not None and written >= limit:
             break
-        result = describer.describe(clip.frames, clip.t0, clip.t1)
-        entry = MemoryEntry(index=clip.index, t0=round(clip.t0, 2), t1=round(clip.t1, 2),
-                            text=result.text, latency_s=round(result.latency_s, 2),
-                            n_frames=len(clip.frames))
-        memory.append(entry)
-        if evidence is not None:
-            evidence.save(clip.index, clip.frames)
+        entry = describe_clip(describer, clip, memory, evidence)
         written += 1
         print(f"[{clip.index + 1:3d}/{total}] {fmt_time(clip.t0)} "
-              f"({result.latency_s:4.1f}s) {result.text}", flush=True)
+              f"({entry.latency_s:4.1f}s) {entry.text}", flush=True)
     print(f"{scenario_id}/{tag}: {len(memory)}/{total} clips in {out / 'memory.jsonl'}")
     return out
 

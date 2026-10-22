@@ -5,3 +5,5 @@ __pycache__/
 data/
 results/
 logs/
+# Live sessions from the glasses: personal recordings, not demo material.
+scenarios/live-*.json

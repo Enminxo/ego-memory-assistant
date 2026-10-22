@@ -68,6 +68,33 @@ A scene is a JSON file in `scenarios/` with the video and its questions (the for
 }
 ```
 
+## Using Pupil Labs Neon glasses
+
+Neon is a sensor, not a computer: the glasses are wired to their companion phone, which records and streams over Wi-Fi. The assistant runs on this machine, and only the scene camera is used so far.
+
+```bash
+uv sync --extra neon
+```
+
+**Record, then ask.** Record with the Neon Companion app, copy the recording folder (native format) from the phone over USB, and turn it into a scene. The video is rewritten at a constant rate from Neon's own frame timestamps, so the diary's times are the real ones.
+
+```bash
+uv run egomem-neon import ~/data/neon/<recording> --id kitchen --title "My kitchen"
+# add questions to scenarios/kitchen.json, ideally before reading the diary
+uv run egomem-build kitchen
+uv run egomem-app
+```
+
+**Live.** The phone and this machine must reach each other on a local network, for instance the phone's hotspot (eduroam usually does not work). The phone's IP is shown in the Companion app's streaming screen.
+
+```bash
+uv run egomem-live --neon <phone-ip> --probe   # phone, frames per second and lag; saves logs/neon_probe.jpg
+uv run egomem-live --neon <phone-ip>           # a diary entry every 15 s, until Ctrl+C
+uv run egomem-app                              # another terminal: the session is the tab marked ●
+```
+
+`--record` also records on the phone, which keeps gaze and audio for later. It is off by default because a recording may upload to the phone's Pupil Cloud workspace.
+
 ## Layout
 
 | File | What it does |
@@ -79,4 +106,6 @@ A scene is a JSON file in `scenarios/` with the video and its questions (the for
 | `src/egomem/memory.py` | The diary and the evidence frames |
 | `src/egomem/reader.py` | Diary + question → answer with citations |
 | `src/egomem/scenarios.py` | Scene format and building scenes from Ego4D |
+| `src/egomem/neon.py` | Neon glasses: recording → scene, and the live scene camera |
+| `src/egomem/live.py` | Live session: wall-clock sampling and the diary written as it arrives |
 | `src/egomem/build_memory.py`, `evaluate.py`, `app.py` | The three commands |

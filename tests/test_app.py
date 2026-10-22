@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from egomem.app import create_app
 from egomem.memory import MemoryEntry, TextualMemory
 from egomem.reader import Answer
+from egomem.scenarios import Scenario
 
 
 class FakeReader:
@@ -51,3 +52,21 @@ def test_video_supports_range_requests(tmp_path):
     response = client.get("/api/scenarios/s/video", headers={"Range": "bytes=10-19"})
     assert response.status_code == 206
     assert response.content == b"0123456789"
+
+
+def test_live_scenario_appears_after_start_and_has_no_video(tmp_path):
+    client, reader = make_app(tmp_path)
+    assert [s["id"] for s in client.get("/api/scenarios").json()] == ["s"]
+
+    # egomem-live creates its scenario while the app is already running
+    Scenario(id="live-1", title="Live", category="other", live=True).save(
+        tmp_path / "scenarios/live-1.json")
+    TextualMemory(tmp_path / "data/memories/live-1/default/memory.jsonl").append(
+        MemoryEntry(0, 0, 15, "I put the keys on the table.", 9.0, 8))
+
+    listed = {s["id"]: s for s in client.get("/api/scenarios").json()}
+    assert listed["live-1"]["live"] and listed["live-1"]["n_entries"] == 1
+    assert not listed["s"]["live"]
+    assert client.get("/api/scenarios/live-1/video").status_code == 404
+    client.post("/api/ask", json={"scenario": "live-1", "question": "Where are my keys?"})
+    assert len(reader.seen) == 1
