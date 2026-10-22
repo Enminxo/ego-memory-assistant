@@ -5,7 +5,7 @@ import subprocess
 import numpy as np
 import pytest
 
-from egomem.neon import import_recording, scene_resample_indices
+from egomem.neon import import_recording, scene_resample_indices, stream_url
 from egomem.scenarios import load_scenario
 from egomem.sources import VideoFileSource
 
@@ -43,6 +43,14 @@ def test_resample_rejects_empty_or_unsorted():
         scene_resample_indices(np.array([], dtype=np.int64), 15)
     with pytest.raises(ValueError):
         scene_resample_indices(np.array([2, 1]) * S, 15)
+
+
+def test_stream_url_goes_to_the_address_we_connected_to():
+    # the phone announces its Wi-Fi address; through Tailscale only its Tailscale address answers
+    announced = "rtsp://192.168.1.37:8086/?camera=world"
+    assert stream_url(announced, "100.101.7.12") == "rtsp://100.101.7.12:8086/?camera=world"
+    assert stream_url(announced, "fd7a:115c:a1e0::51") == "rtsp://[fd7a:115c:a1e0::51]:8086/?camera=world"
+    assert stream_url(announced, "192.168.1.37") == announced  # same network: nothing changes
 
 
 def write_fake_recording(rec_dir, t_start_ns):

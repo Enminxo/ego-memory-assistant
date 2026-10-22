@@ -85,7 +85,7 @@ uv run egomem-build kitchen
 uv run egomem-app
 ```
 
-**Live.** The phone and this machine must reach each other on a local network, for instance the phone's hotspot (eduroam usually does not work). The phone's IP is shown in the Companion app's streaming screen.
+**Live.** The phone and this machine must reach each other: on the same local network (the phone's IP is shown in the Companion app's streaming screen; eduroam usually does not work), or with Tailscale on both, passing the phone's Tailscale IP. Through Tailscale the video is read from that address too, not from the Wi-Fi address the phone announces, and searching the network (no `--neon`) does not work.
 
 ```bash
 uv run egomem-live --neon <phone-ip> --probe   # phone, frames per second and lag; saves logs/neon_probe.jpg
