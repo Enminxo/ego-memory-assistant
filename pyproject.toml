@@ -8,6 +8,7 @@ dependencies = [
     "fastapi",
     "numpy",
     "pillow",
+    "python-multipart>=0.0.32",
     "pyyaml",
     "uvicorn",
 ]

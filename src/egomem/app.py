@@ -5,22 +5,28 @@ the video, showing only the entries of clips that have already ended. A
 question asked at second t is answered from those entries alone, so the replay
 behaves like a live run would.
 
+A recording uploaded from the page is described right after it arrives
+(uploads.py), and its diary shows up as it grows.
+
     egomem-app --config configs/demo.yaml --tag default --port 8090
 """
 
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from egomem.build_memory import build
 from egomem.config import load_config, make_reader, memory_dir
 from egomem.memory import EvidenceStore, MemoryEntry, TextualMemory
 from egomem.reader import Reader
 from egomem.scenarios import Scenario, load_scenarios
+from egomem.uploads import UploadJobs
 
 STATIC = Path(__file__).parent / "static"
 
@@ -40,9 +46,15 @@ def entry_at(entries: list[MemoryEntry], t: float) -> MemoryEntry | None:
 
 
 def create_app(config: dict, tag: str, reader: Reader | None = None,
-               root: Path = Path(".")) -> FastAPI:
+               root: Path = Path("."), builder: Callable[[str], object] | None = None) -> FastAPI:
     app = FastAPI(title="Episodic memory assistant")
     reader = reader or make_reader(config)
+    # build() resolves its paths from the working directory, which is `root`
+    # when the app is started by main().
+    uploads = UploadJobs(root / config["scenarios_dir"], root / config["data_dir"] / "uploads",
+                         root, builder or (lambda scene_id: build(config, scene_id, tag)),
+                         clip_sec=config["describer"]["clip_sec"])
+    app.state.uploads = uploads
 
     def current_scenarios() -> dict[str, Scenario]:
         # Read on every request, like the diaries: a live session (egomem-live)
@@ -73,7 +85,9 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
                  "demo_questions": s.demo_questions, "live": s.live,
                  "ended": s.live and "ended" in s.source,
                  "n_entries": len(load_memory(s.id))}
-                for s in current_scenarios().values()]
+                # Uploaded recordings after the demo scenes, each group in file order.
+                for s in sorted(current_scenarios().values(),
+                                key=lambda s: s.id.startswith("upload-"))]
 
     @app.get("/api/scenarios/{scenario_id}/memory")
     def memory(scenario_id: str) -> dict:
@@ -102,6 +116,20 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
         if not path.exists():
             raise HTTPException(404, "frame not kept")
         return FileResponse(path, media_type="image/jpeg")
+
+    @app.post("/api/uploads")
+    def upload(files: list[UploadFile] = File(...), title: str = Form("")) -> dict:
+        try:
+            job = uploads.submit(title, [(f.filename or "upload", f.file) for f in files])
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return job.as_dict()
+
+    @app.get("/api/uploads")
+    def list_uploads() -> list[dict]:
+        return [{**job.as_dict(), "clips_done": len(load_memory(job.id)),
+                 "clip_sec": config["describer"]["clip_sec"]}
+                for job in uploads.jobs.values()]
 
     @app.post("/api/ask")
     def ask(request: AskRequest) -> dict:

@@ -7,12 +7,12 @@
 <style>
 :root {
   --bg: #f6f5f2; --panel: #ffffff; --line: #e3e0d9; --fg: #1d1d1b; --dim: #6f6b63;
-  --accent: #d9622b; --accent-soft: #fbe9df; --ok: #2f7d4f; --chip: #f0eee9;
+  --accent: #d9622b; --accent-soft: #fbe9df; --ok: #2f7d4f; --chip: #f0eee9; --err: #b3261e;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #141412; --panel: #1d1c1a; --line: #33312d; --fg: #ecebe7; --dim: #9a958c;
-    --accent: #f08a52; --accent-soft: #3a2519; --ok: #6cc28f; --chip: #2a2926;
+    --accent: #f08a52; --accent-soft: #3a2519; --ok: #6cc28f; --chip: #2a2926; --err: #f2867b;
   }
 }
 * { box-sizing: border-box; }
@@ -71,18 +71,54 @@ form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; b
 body.live video, body.live .timeline, body.live .legend, body.live #mode { display: none; }
 body.live .live-note { display: block; }
 .dot { color: var(--accent); }
+/* Uploading a recording: converted, then described right away (uploads.py). */
+.addtab { border: 1px dashed var(--dim); background: transparent; color: var(--fg); border-radius: 999px;
+          padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.addtab.on { border-style: solid; border-color: var(--accent); color: var(--accent); }
+.tabs .prog { font-variant-numeric: tabular-nums; opacity: .8; font-size: 12px; }
+.upload { margin: 14px 16px 0; }
+.upform { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; padding: 12px; }
+.upform label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--dim); min-width: 0; }
+.upform .grow { flex: 1 1 240px; }
+.upform input[type=file] { font: inherit; font-size: 13px; color: var(--fg); max-width: 100%; }
+.upform button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; background: var(--accent);
+                 color: #fff; cursor: pointer; }
+.upform button:disabled { opacity: .5; cursor: default; }
+.uphelp { padding: 0 12px 10px; }
+#uperr { color: var(--err); padding: 0 12px; font-size: 13px; }
+#jobs { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+#jobs:empty { display: none; }
+.job { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid;
+       grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; }
+.job .state { color: var(--dim); font-size: 13px; }
+.job.error .state { color: var(--err); }
+.job .bar { grid-column: 1 / -1; height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; }
+.job .bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
 </style>
 </head>
 <body>
 <header>
   <h1>Episodic memory <span>· prototype</span></h1>
   <div class="tabs" id="tabs"></div>
+  <button class="addtab" id="upbtn">+ Upload recording</button>
   <div class="mode" id="mode">
     Memory:
     <button data-mode="now" class="on">up to now</button>
     <button data-mode="all">whole video</button>
   </div>
 </header>
+<div class="panel upload" id="upload" hidden>
+  <h2>Upload a recording</h2>
+  <form class="upform" id="upform">
+    <label class="grow">Title<input type="text" id="uptitle" placeholder="Did I close the window?" autocomplete="off"></label>
+    <label>Neon recording folder<input type="file" id="upfolder" webkitdirectory multiple></label>
+    <label>…or a .zip or video file<input type="file" id="upfile" accept=".zip,.mp4,.mov,.mkv,.webm,.avi,.m4v,video/*"></label>
+    <button id="upsend">Upload</button>
+  </form>
+  <div class="uphelp muted">A native recording (the folder copied from the phone, or Pupil Cloud's "Native Recording Data" zip) keeps Neon's own frame times. The diary is written right after the upload, about 10 s for every 15 s of video, and the tab opens as soon as the video can play.</div>
+  <div id="uperr"></div>
+  <div id="jobs"></div>
+</div>
 <main>
   <section>
     <div class="panel">
@@ -116,6 +152,9 @@ const $ = (id) => document.getElementById(id);
 const video = $("video");
 let scenarios = [], current = null, entries = [], mode = "now", shown = -1, selected = null;
 let poll = null;  // refreshes the diary of a live session
+let jobs = {};                    // uploads by scene id, from /api/uploads
+let sending = null;               // the upload still travelling to the server: {name, frac}
+const openWhenReady = new Set();  // uploads sent from this page: their tab opens once the video can play
 
 const fmt = (t) => {
   const s = Math.round(t);
@@ -123,20 +162,38 @@ const fmt = (t) => {
 };
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 
+const describing = (id) => jobs[id] && jobs[id].stage === "describing";
+const duration = () => isFinite(video.duration) && video.duration > 0 ? video.duration
+  : entries.length ? entries[entries.length - 1].t1 : 1;
+
+function renderTabs() {
+  $("tabs").innerHTML = scenarios.map((s) => {
+    const j = jobs[s.id];
+    const prog = describing(s.id) ? ` <span class="prog">${j.clips_done}/${j.total_clips}</span>` : "";
+    return `<button data-id="${s.id}">${s.live ? "● " : ""}${esc(s.title)}${prog}</button>`;
+  }).join("");
+  if (current) [...$("tabs").children].forEach((b) => b.classList.toggle("on", b.dataset.id === current.id));
+}
+
 async function init() {
   scenarios = await (await fetch("/api/scenarios")).json();
-  $("tabs").innerHTML = scenarios.map((s) =>
-    `<button data-id="${s.id}">${s.live ? "● " : ""}${esc(s.title)}</button>`).join("");
-  $("tabs").onclick = (e) => { if (e.target.dataset.id) load(e.target.dataset.id); };
+  renderTabs();
+  $("tabs").onclick = (e) => {
+    const tab = e.target.closest("button");  // the click may land on the clip counter inside it
+    if (tab) load(tab.dataset.id);
+  };
   $("mode").onclick = (e) => {
     if (!e.target.dataset.mode) return;
     mode = e.target.dataset.mode;
     [...$("mode").querySelectorAll("button")].forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
   };
   if (scenarios.length) load(scenarios[0].id);
+  pollJobs();
+  setInterval(pollJobs, 2000);
 }
 
 async function load(id) {
+  if (!scenarios.find((s) => s.id === id)) return;
   current = scenarios.find((s) => s.id === id);
   [...$("tabs").children].forEach((b) => b.classList.toggle("on", b.dataset.id === id));
   entries = (await (await fetch(`/api/scenarios/${id}/memory`)).json()).entries;
@@ -166,8 +223,10 @@ async function load(id) {
   if (current.live && entries.length) showEvidence(entries[entries.length - 1], false);
 }
 
+// Fetch the diary again: every 3 s for a live session, and on each poll of the
+// uploads while an uploaded recording is being described.
 async function refresh() {
-  if (!current || !current.live) return;
+  if (!current) return;
   const id = current.id;
   const fresh = (await (await fetch(`/api/scenarios/${id}/memory`)).json()).entries;
   if (current.id !== id || fresh.length === entries.length) return;
@@ -175,8 +234,9 @@ async function refresh() {
   const following = selected === null || (entries.length && selected === entries[entries.length - 1].index);
   entries = fresh;
   shown = -1;
+  drawTimeline();
   update();
-  if (following) showEvidence(entries[entries.length - 1], false);
+  if (current.live && following) showEvidence(entries[entries.length - 1], false);
 }
 
 function visibleEntries() {
@@ -186,28 +246,45 @@ function visibleEntries() {
 }
 
 function drawTimeline() {
-  const dur = entries.length ? entries[entries.length - 1].t1 : 1;
+  // The video's own length when known: while an upload is still being described,
+  // the last entry ends well before the video does.
+  const dur = duration();
   $("timeline").innerHTML = entries.map((e) =>
     `<div class="seg" data-i="${e.index}" style="left:${100 * e.t0 / dur}%;width:${100 * (e.t1 - e.t0) / dur}%"></div>`
   ).join("") + '<div class="head" id="head"></div>';
 }
 
+// The clip being written, shown under the diary. Replayed, it is the one under the
+// playhead. While an upload is still being described, it is the clip after the
+// last entry: "watching…" while the playhead is inside it, "describing…" once
+// the playhead has passed it (or the video has ended) and the model is still writing.
+function pendingClip(t) {
+  const end = entries.length ? entries[entries.length - 1].t1 : 0;
+  if (describing(current.id) && t >= end) {
+    const clipEnd = Math.min(end + jobs[current.id].clip_sec, duration());
+    return {t0: end, label: t < clipEnd - 0.05 ? "watching…" : "describing…"};
+  }
+  const under = entries.find((e) => e.t0 <= t && t < e.t1);
+  return under ? {t0: under.t0, label: "watching…"} : null;
+}
+
 function update() {
+  if (!current) return;
   const t = video.currentTime || 0;
-  const dur = entries.length ? entries[entries.length - 1].t1 : 1;
   const head = $("head");
-  if (head) head.style.left = `${Math.min(100, 100 * t / dur)}%`;
+  if (head) head.style.left = `${Math.min(100, 100 * t / duration())}%`;
   const vis = visibleEntries();
-  if (vis.length === shown) return;
-  shown = vis.length;
+  const live = current.live;
+  // Live, the next clip is always being watched or described.
+  const writing = live ? (current.ended ? null : {t0: vis.length ? vis[vis.length - 1].t1 : 0, label: "watching…"})
+                       : pendingClip(t);
+  const key = `${vis.length}|${writing ? writing.t0 + writing.label : ""}`;
+  if (key === shown) return;
+  shown = key;
   [...$("timeline").querySelectorAll(".seg")].forEach((s, i) => s.classList.toggle("done", i < vis.length));
-  const live = current && current.live;
-  // Live, the next clip is always being watched or described; replayed, it is the one under the playhead.
-  const writing = live ? (current.ended ? null : {t0: vis.length ? vis[vis.length - 1].t1 : 0})
-                       : entries.find((e) => e.t0 <= t && t < e.t1);
   $("diary").innerHTML = vis.map((e) =>
     `<div class="entry${selected === e.index ? " sel" : ""}" data-i="${e.index}"><time>${fmt(e.t0)}</time>${esc(e.text)}</div>`
-  ).join("") + (writing ? `<div class="entry pending"><time>${fmt(writing.t0)}</time>watching…</div>` : "")
+  ).join("") + (writing ? `<div class="entry pending"><time>${fmt(writing.t0)}</time>${writing.label}</div>` : "")
     + (live && current.ended ? '<div class="entry pending">Session ended.</div>' : "")
     + (vis.length === 0 && !writing && !live ? '<div class="entry pending">Press play: the diary is written as the video advances.</div>' : "");
   $("diary").scrollTop = $("diary").scrollHeight;
@@ -268,10 +345,96 @@ $("form").onsubmit = (e) => {
   if (q) { ask(q); $("q").value = ""; }
 };
 video.addEventListener("timeupdate", update);
+video.addEventListener("loadedmetadata", () => { drawTimeline(); shown = -1; update(); });
 video.addEventListener("seeked", () => { shown = -1; update(); });
 // Also poll: a seek made before the video has loaded fires no events, and the
 // diary must still follow currentTime.
 setInterval(update, 500);
+
+// --- Uploading a recording -------------------------------------------------
+
+$("upbtn").onclick = () => {
+  $("upload").hidden = !$("upload").hidden;
+  $("upbtn").classList.toggle("on", !$("upload").hidden);
+};
+// One source at a time: picking a folder clears the file, and the other way round.
+$("upfolder").onchange = () => { $("upfile").value = ""; };
+$("upfile").onchange = () => { $("upfolder").value = ""; };
+
+$("upform").onsubmit = (e) => {
+  e.preventDefault();
+  const folder = [...$("upfolder").files], file = [...$("upfile").files];
+  const files = folder.length ? folder : file;
+  $("uperr").textContent = "";
+  if (!files.length) { $("uperr").textContent = "Pick a recording folder or a file first."; return; }
+  const form = new FormData();
+  form.append("title", $("uptitle").value.trim());
+  // A folder's files keep their path inside it ("2026-10-23_10-00-00/info.json").
+  for (const f of files) form.append("files", f, f.webkitRelativePath || f.name);
+  sending = {name: folder.length ? folder[0].webkitRelativePath.split("/")[0] : file[0].name, frac: 0};
+  $("upsend").disabled = true;
+  // XMLHttpRequest rather than fetch: only it reports how much has been sent.
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/uploads");
+  xhr.upload.onprogress = (ev) => {
+    if (ev.lengthComputable) { sending.frac = ev.loaded / ev.total; renderJobs(); }
+  };
+  xhr.onload = () => {
+    let body = {};
+    try { body = JSON.parse(xhr.responseText); } catch (err) { /* not JSON: keep the status */ }
+    if (xhr.status === 200) { openWhenReady.add(body.id); $("upform").reset(); }
+    else $("uperr").textContent = body.detail || `Upload failed (HTTP ${xhr.status}).`;
+    done();
+  };
+  xhr.onerror = () => { $("uperr").textContent = "Upload failed: the connection to the server was lost."; done(); };
+  const done = () => { sending = null; $("upsend").disabled = false; pollJobs(); };
+  xhr.send(form);
+  renderJobs();
+};
+
+function renderJobs() {
+  const rows = Object.values(jobs).reverse().map((j) => {
+    let state, frac = null;
+    if (j.stage === "queued") state = "waiting for the previous upload";
+    else if (j.stage === "converting") state = "converting the video…";
+    else if (j.stage === "describing") { state = `writing the diary · ${j.clips_done}/${j.total_clips} clips`; frac = j.clips_done / j.total_clips; }
+    else if (j.stage === "done") { state = `diary ready · ${j.clips_done} clips`; frac = 1; }
+    else state = `error: ${j.error}`;
+    const open = j.stage === "describing" || j.stage === "done" ? `<button class="chip" data-open="${j.id}">Open</button>` : "<span></span>";
+    return `<div class="job ${j.stage}"><div><b>${esc(j.title)}</b> · <span class="state">${esc(state)}</span></div>${open}`
+      + (frac !== null ? `<div class="bar"><i style="width:${100 * frac}%"></i></div>` : "") + "</div>";
+  });
+  const up = sending ? `<div class="job"><div><b>${esc(sending.name)}</b> · <span class="state">uploading ${Math.round(100 * sending.frac)}%</span></div><span></span>`
+    + `<div class="bar"><i style="width:${100 * sending.frac}%"></i></div></div>` : "";
+  $("jobs").innerHTML = up + rows.join("");
+}
+
+$("jobs").onclick = (e) => { if (e.target.dataset.open) load(e.target.dataset.open); };
+
+async function pollJobs() {
+  const list = await (await fetch("/api/uploads")).json();
+  jobs = Object.fromEntries(list.map((j) => [j.id, j]));
+  // A tab appears once its video is ready, which is when the job starts describing.
+  const ready = list.filter((j) => j.stage === "describing" || j.stage === "done");
+  if (ready.some((j) => !scenarios.find((s) => s.id === j.id))) {
+    scenarios = await (await fetch("/api/scenarios")).json();
+    if (current) current = scenarios.find((s) => s.id === current.id) || current;
+  }
+  renderTabs();
+  renderJobs();
+  for (const j of ready) {
+    if (openWhenReady.has(j.id) && scenarios.find((s) => s.id === j.id)) {
+      openWhenReady.delete(j.id);
+      $("upload").hidden = true;
+      $("upbtn").classList.remove("on");
+      load(j.id);
+    }
+  }
+  const j = current && jobs[current.id];
+  if (j && j.clips_done !== entries.length) refresh();
+  else if (j) update();  // the pending row may change from "describing…" to nothing
+}
+
 init();
 </script>
 </body>

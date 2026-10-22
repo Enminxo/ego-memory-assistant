@@ -3,7 +3,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 data/
+# A worktree links data to the main checkout's (ln -s ../../../data data).
+/data
 results/
 logs/
 # Live sessions from the glasses: personal recordings, not demo material.
 scenarios/live-*.json
+# Recordings uploaded from the app: personal, not demo material.
+scenarios/upload-*.json

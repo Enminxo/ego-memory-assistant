@@ -28,7 +28,7 @@ def make_app(tmp_path):
     memory = TextualMemory(tmp_path / "data/memories/s/default/memory.jsonl")
     for i in range(3):
         memory.append(MemoryEntry(i, 15 * i, 15 * (i + 1), f"clip {i}", 1.0, 8))
-    config = {"scenarios_dir": "scenarios", "data_dir": "data"}
+    config = {"scenarios_dir": "scenarios", "data_dir": "data", "describer": {"clip_sec": 15}}
     reader = FakeReader()
     return TestClient(create_app(config, "default", reader=reader, root=tmp_path)), reader
 

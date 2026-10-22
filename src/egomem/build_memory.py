@@ -35,9 +35,11 @@ def describe_clip(describer: Describer, clip: Clip, memory: TextualMemory,
     entry = MemoryEntry(index=clip.index, t0=round(clip.t0, 2), t1=round(clip.t1, 2),
                         text=result.text, latency_s=round(result.latency_s, 2),
                         n_frames=len(clip.frames))
-    memory.append(entry)
+    # Frames first: the app reads the diary while it grows, and an entry must
+    # not show up before the frames it was written from.
     if evidence is not None:
         evidence.save(clip.index, clip.frames)
+    memory.append(entry)
     return entry
 
 

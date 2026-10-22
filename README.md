@@ -85,6 +85,8 @@ uv run egomem-build kitchen
 uv run egomem-app
 ```
 
+**Or upload it from the page.** In `egomem-app`, *+ Upload recording* takes the recording folder, Pupil Cloud's "Native Recording Data" zip, or any video file. The app converts it, writes the diary right away (about 10 s for every 15 s of video) and opens it as a new tab, whose diary fills in as it is written.
+
 **Live.** The phone and this machine must reach each other: on the same local network (the phone's IP is shown in the Companion app's streaming screen; eduroam usually does not work), or with Tailscale on both, passing the phone's Tailscale IP. Through Tailscale the video is read from that address too, not from the Wi-Fi address the phone announces, and searching the network (no `--neon`) does not work.
 
 ```bash
@@ -108,4 +110,5 @@ uv run egomem-app                              # another terminal: the session i
 | `src/egomem/scenarios.py` | Scene format and building scenes from Ego4D |
 | `src/egomem/neon.py` | Neon glasses: recording → scene, and the live scene camera |
 | `src/egomem/live.py` | Live session: wall-clock sampling and the diary written as it arrives |
+| `src/egomem/uploads.py` | Recordings uploaded from the app: converted to a scene, then described |
 | `src/egomem/build_memory.py`, `evaluate.py`, `app.py` | The three commands |
