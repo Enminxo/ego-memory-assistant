@@ -7,8 +7,8 @@ assistant runs on another machine, and there are two ways in:
 - Offline: a recording in Neon's native format, copied from the phone, becomes
   a scenario (`egomem-neon import`). egomem-build and egomem-app then work on
   it unchanged.
-- Live: `NeonLiveSource` reads the scene camera through the Real-time API, for
-  egomem-live (live.py).
+- Live: `NeonLiveSource` reads the scene camera through the Companion app's
+  WebSocket (neon_stream.py), for egomem-live and the app's live tab (live.py).
 
 Only the scene camera is used for now. Gaze, IMU and audio come in the same
 recording and stream; the scenario keeps the scene camera's start time so they
@@ -24,18 +24,17 @@ run without them.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import statistics
 import subprocess
 import threading
 import time
-import urllib.parse
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
 from egomem.config import load_config
+from egomem.neon_stream import WS_PORT, SceneStream
 from egomem.scenarios import CATEGORIES, Scenario
 from egomem.sources import VideoFileSource
 
@@ -107,34 +106,22 @@ def import_recording(rec_dir: Path, scene_id: str, title: str, scenarios_dir: Pa
 
 # --- Live: the latest frame of the scene camera --------------------------------
 
-def stream_url(sensor_url: str, host: str) -> str:
-    """The sensor's RTSP URL, pointed at `host` instead of the address the phone announces.
+class NeonLiveSource(SceneStream):
+    """The scene camera of a Neon, live, with its phone for status, clock and recording.
 
-    The phone announces its streams under its own Wi-Fi address. Reached
-    through Tailscale (or any VPN), that address is not routable from here: the
-    phone answers only at the address we connected to. Same phone, same port.
-    """
-    parts = urllib.parse.urlsplit(sensor_url)
-    netloc = f"[{host}]" if ":" in host else host  # an IPv6 address needs brackets
-    return urllib.parse.urlunsplit(parts._replace(netloc=f"{netloc}:{parts.port}"))
-
-
-class NeonLiveSource:
-    """The latest frame of a Neon's scene camera, read continuously in a thread.
-
-    The stream hands out every frame in order, so a consumer that only wants a
-    frame every couple of seconds would fall further and further behind it. A
-    thread drains it instead and keeps the most recent frame, as egoagent's
-    FrameHub does with the Pi camera.
+    The video is read over the Companion's WebSocket (neon_stream.py): its
+    plain RTSP sends UDP, which arrived damaged on the office Wi-Fi. The
+    phone's HTTP API (port 8080, through pupil_labs.realtime_api) gives its
+    name and battery, the clock offset for --probe, and recording.
 
     `address` None searches the local network (mDNS), which only finds the
     phone when both are on the same network segment. Otherwise pass the phone's
     address: its local IP, shown in the Companion app's streaming screen, or its
-    Tailscale IP. The video is then read from that same address (stream_url).
+    Tailscale IP.
     """
 
     def __init__(self, address: str | None = None, port: int = DEFAULT_PORT,
-                 search_sec: float = 10.0) -> None:
+                 ws_port: int = WS_PORT, search_sec: float = 10.0) -> None:
         from pupil_labs.realtime_api.simple import Device, discover_one_device
 
         if address is None:
@@ -145,77 +132,53 @@ class NeonLiveSource:
         else:
             device = Device(address, port)
         self.device = device
-        sensor = device.world_sensor()
-        if sensor is None or sensor.url is None:
-            device.close()
-            raise ConnectionError("the phone reports no scene camera: are the glasses "
-                                  "plugged in and the Companion app open?")
-        self.url = sensor.url if address is None else stream_url(sensor.url, address)
-        self.frames_read = 0
-        self.error: BaseException | None = None
-        self._frame = None  # the last decoded frame, converted to pixels only when used
-        self._timestamp = 0.0
-        self._lock = threading.Lock()
-        self._first = threading.Event()
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, name="neon-scene", daemon=True)
-        self._thread.start()
+        super().__init__(device.address if address is None else address, ws_port)
+        # Pupil Labs' time echo relates the phone's clock to this machine's, for lag().
+        # It takes 4 to 8 s on a poor Wi-Fi, so it runs beside the video, not before it.
+        self.clock_ready = threading.Event()
+        threading.Thread(target=self._estimate_clock, name="neon-clock", daemon=True).start()
 
-    def _run(self) -> None:
+    def _estimate_clock(self) -> None:
         try:
-            asyncio.run(self._stream())
-        except BaseException as exc:  # reported by latest(), not lost in this thread
-            self.error = exc
+            estimate = self.device.estimate_time_offset()
+            if estimate is not None:
+                self.clock_offset_s = estimate.time_offset_ms.mean / 1000
+        except Exception:  # the lag is then shown as unknown; the video is unaffected
+            pass
+        finally:
+            self.clock_ready.set()
 
-    async def _stream(self) -> None:
-        from pupil_labs.realtime_api.streaming import receive_video_frames
-
-        async for frame in receive_video_frames(self.url, run_loop=True):
-            with self._lock:
-                self._frame, self._timestamp = frame, frame.timestamp_unix_seconds
-                self.frames_read += 1
-            self._first.set()
-            if self._stop.is_set():
-                break
-
-    def latest(self, timeout: float = 10.0) -> tuple[np.ndarray, float]:
-        """Most recent frame as RGB, and when it was taken (Unix seconds, phone clock)."""
-        if not self._first.wait(timeout):
-            if self.error is not None:
-                raise ConnectionError(f"scene stream {self.url} failed: {self.error!r}")
-            raise TimeoutError(f"no scene frame from {self.url} in {timeout:.0f} s")
-        with self._lock:
-            frame, timestamp = self._frame, self._timestamp
-        # Decoded to pixels here, on the few frames used, not on all 30 per second.
-        return frame.to_ndarray(format="rgb24"), timestamp
-
-    def latest_rgb(self) -> np.ndarray:
-        return self.latest()[0]
+    def latest(self, timeout: float = 10.0) -> tuple[np.ndarray, float | None]:
+        try:
+            return super().latest(timeout)
+        except TimeoutError as exc:
+            if self.frames_read == 0 and self.device.module_serial is None:
+                raise TimeoutError(f"{exc}. The phone reports no glasses: are they plugged "
+                                   "in, with the Companion app open?") from None
+            raise
 
     def close(self) -> None:
-        self._stop.set()
-        self._thread.join(timeout=3.0)
+        super().close()
         self.device.close()
 
 
-def probe(source: NeonLiveSource, seconds: float = 5.0,
+def probe(source: NeonLiveSource, seconds: float = 8.0,
           frame_path: Path | None = None) -> dict:
     """Check the connection: which phone, how many frames per second, how late.
 
-    The lag is measured, not assumed: the phone's clock is related to this
-    machine's with Pupil Labs' time echo (offset = client - phone), and each
-    frame's capture time is compared with the moment it is seen here.
+    The lag is measured, not assumed (SceneStream.lag): each frame's capture
+    time on the phone, known from the stream's sender reports from about 3 s
+    in, against the moment it arrives here.
     """
     device = source.device
     frame, _ = source.latest()  # also waits for the stream to start
-    estimate = device.estimate_time_offset()
-    offset_s = estimate.time_offset_ms.mean / 1000 if estimate is not None else None
+    source.clock_ready.wait(15)
     n0, t0 = source.frames_read, time.monotonic()
     lags = []
     while time.monotonic() - t0 < seconds:
-        frame, taken = source.latest()
-        if offset_s is not None:
-            lags.append(time.time() - (taken + offset_s))
+        frame, _ = source.latest()
+        if (lag := source.lag()) is not None:
+            lags.append(lag)
         time.sleep(0.2)
     fps = (source.frames_read - n0) / (time.monotonic() - t0)
     if frame_path is not None:
@@ -224,7 +187,8 @@ def probe(source: NeonLiveSource, seconds: float = 5.0,
     return {"phone": device.phone_name, "battery_percent": device.battery_level_percent,
             "stream": source.url,
             "frame": f"{frame.shape[1]}x{frame.shape[0]}", "fps_received": round(fps, 1),
-            "clock_offset_ms": round(offset_s * 1000, 1) if offset_s is not None else None,
+            "clock_offset_ms": (round(source.clock_offset_s * 1000, 1)
+                                if source.clock_offset_s is not None else None),
             "lag_median_s": round(statistics.median(lags), 3) if lags else None,
             "lag_max_s": round(max(lags), 3) if lags else None,
             "frame_saved": str(frame_path) if frame_path is not None else None}

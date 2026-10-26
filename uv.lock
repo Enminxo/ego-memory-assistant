@@ -681,6 +681,7 @@ dependencies = [
 neon = [
     { name = "pupil-labs-neon-recording" },
     { name = "pupil-labs-realtime-api" },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -700,6 +701,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "pyyaml" },
     { name = "uvicorn" },
+    { name = "websockets", marker = "extra == 'neon'", specifier = ">=13" },
 ]
 provides-extras = ["neon"]
 

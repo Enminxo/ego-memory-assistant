@@ -67,9 +67,7 @@ form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; b
 .cite { border: 0; background: var(--accent-soft); color: var(--accent); border-radius: 4px;
         padding: 0 4px; font: inherit; font-weight: 600; cursor: pointer; }
 /* A live session (egomem-live) has no video: the diary grows as the glasses stream. */
-.live-note { display: none; padding: 12px; }
 body.live video, body.live .timeline, body.live .legend, body.live #mode { display: none; }
-body.live .live-note { display: block; }
 .dot { color: var(--accent); }
 /* Uploading a recording: converted, then described right away (uploads.py). */
 .addtab { border: 1px dashed var(--dim); background: transparent; color: var(--fg); border-radius: 999px;
@@ -94,6 +92,14 @@ body.live .live-note { display: block; }
 .job.error .state { color: var(--err); }
 .job .bar { grid-column: 1 / -1; height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; }
 .job .bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+/* Going live from the page (live.LiveRunner): the glasses' view replaces the video. */
+#feed { display: none; width: 100%; max-height: 56vh; object-fit: contain; background: #000; }
+body.feed #feed { display: block; }
+.live-note { display: none; padding: 10px 12px; align-items: center; gap: 10px; flex-wrap: wrap; }
+body.live .live-note { display: flex; }
+.live-note .warn { color: var(--err); }
+#livestate { padding: 0 12px 12px; }
+#livestate:empty { display: none; }
 </style>
 </head>
 <body>
@@ -101,6 +107,7 @@ body.live .live-note { display: block; }
   <h1>Episodic memory <span>· prototype</span></h1>
   <div class="tabs" id="tabs"></div>
   <button class="addtab" id="upbtn">+ Upload recording</button>
+  <button class="addtab" id="livebtn">● Go live</button>
   <div class="mode" id="mode">
     Memory:
     <button data-mode="now" class="on">up to now</button>
@@ -119,13 +126,25 @@ body.live .live-note { display: block; }
   <div id="uperr"></div>
   <div id="jobs"></div>
 </div>
+<div class="panel upload" id="golive" hidden>
+  <h2>Live from the Neon glasses</h2>
+  <form class="upform" id="liveform">
+    <label class="grow">Phone address<input type="text" id="liveaddr" placeholder="IP shown in the Companion app, or its Tailscale IP" autocomplete="off"></label>
+    <label class="grow">Title<input type="text" id="livetitle" placeholder="Live (date and time)" autocomplete="off"></label>
+    <button id="livesend">Start</button>
+  </form>
+  <div class="uphelp muted">The glasses must be plugged into the phone, with the Companion app open. The video comes over the app's WebSocket (port 8686), and every 15 s eight of its frames are described into the diary, as with a recording.</div>
+  <div id="liveerr"></div>
+  <div id="livestate" class="muted"></div>
+</div>
 <main>
   <section>
     <div class="panel">
       <video id="video" controls preload="metadata" playsinline></video>
       <div class="timeline" id="timeline"></div>
       <div class="legend">Each segment is a video clip. It fills in once its diary entry has been written.</div>
-      <div class="live-note"><b class="dot">●</b> Live from the glasses. A new diary entry is written after each clip; its frames appear below.</div>
+      <img id="feed" alt="What the glasses see now">
+      <div class="live-note" id="livenote"></div>
     </div>
     <div class="panel" style="margin-top:14px">
       <h2>What the camera saw</h2>
@@ -155,6 +174,10 @@ let poll = null;  // refreshes the diary of a live session
 let jobs = {};                    // uploads by scene id, from /api/uploads
 let sending = null;               // the upload still travelling to the server: {name, frac}
 const openWhenReady = new Set();  // uploads sent from this page: their tab opens once the video can play
+let live = {state: "idle"};       // the live session this app runs, from /api/live
+let openLive = null;              // started from this page: its tab opens once the first frame is in
+let feedOn = false;
+let stopping = false;             // Stop pressed: the clips already taken are still being described
 
 const fmt = (t) => {
   const s = Math.round(t);
@@ -190,6 +213,9 @@ async function init() {
   if (scenarios.length) load(scenarios[0].id);
   pollJobs();
   setInterval(pollJobs, 2000);
+  try { $("liveaddr").value = localStorage.getItem("egomem.phone") || ""; } catch (err) { /* storage blocked */ }
+  pollLive();
+  setInterval(pollLive, 1000);
 }
 
 async function load(id) {
@@ -206,6 +232,8 @@ async function load(id) {
   } else {
     video.src = `/api/scenarios/${id}/video`;
   }
+  setFeed();
+  renderLiveNote();
   shown = -1; selected = null;
   $("answers").innerHTML = "";
   $("evidence").innerHTML = '<div class="muted">Click a diary entry or a moment cited in an answer.</div>';
@@ -434,6 +462,106 @@ async function pollJobs() {
   if (j && j.clips_done !== entries.length) refresh();
   else if (j) update();  // the pending row may change from "describing…" to nothing
 }
+
+// --- Going live ---------------------------------------------------------------
+
+// The session this app is running is the one on screen: show what the glasses see.
+const streaming = () => !!current && live.id === current.id && live.state === "running";
+
+function setFeed() {
+  const on = streaming();
+  if (on === feedOn) return;
+  feedOn = on;
+  document.body.classList.toggle("feed", on);
+  // Pointing the image elsewhere closes the stream's connection.
+  $("feed").src = on ? `/api/live/stream.mjpg?t=${Date.now()}` : "data:,";
+}
+
+function renderLiveNote() {
+  if (!current || !current.live) return;
+  let html;
+  if (streaming()) {
+    const parts = [`<b class="dot">●</b> Live`, `${live.fps} fps`];
+    if (live.video_age_s !== null && live.video_age_s > 3)
+      parts.push(`<span class="warn">no video for ${Math.round(live.video_age_s)} s, reconnecting</span>`);
+    else if (live.lag_s !== null && live.lag_s !== undefined)
+      // Late video means the Wi-Fi carries less than the video's bitrate (README, Live).
+      parts.push(live.lag_s > 5 ? `<span class="warn">video ${Math.round(live.lag_s)} s late: slow Wi-Fi</span>`
+                                : `${live.lag_s.toFixed(1)} s behind`);
+    parts.push(`${live.clips_written} entries`);
+    if (live.dropped) parts.push(`<span class="warn">${live.dropped} clips dropped</span>`);
+    html = `<span>${parts.join(" · ")}</span>` + (stopping
+      ? '<span class="muted">stopping: describing the clips already taken…</span>'
+      : '<button class="chip" id="stopbtn">Stop</button>');
+  } else if (current.ended) {
+    html = `<span class="muted">Live session from the glasses, ended.</span>`;
+  } else {
+    html = `<span><b class="dot">●</b> Live from the glasses (egomem-live). A new diary entry is written after each clip; its frames appear below.</span>`;
+  }
+  $("livenote").innerHTML = html;
+}
+
+async function pollLive() {
+  const before = live;
+  live = await (await fetch("/api/live")).json();
+  if (before.state !== live.state || before.id !== live.id) {
+    // A session started (its tab appears) or ended (its tab says so).
+    scenarios = await (await fetch("/api/scenarios")).json();
+    if (current) current = scenarios.find((s) => s.id === current.id) || current;
+    renderTabs();
+    if (live.state === "running" && openLive === live.id) {
+      openLive = null;
+      $("golive").hidden = true;
+      $("livebtn").classList.remove("on");
+      load(live.id);
+    }
+    shown = -1;
+    update();
+  }
+  const busy = live.state === "connecting" || live.state === "running";
+  if (!busy) stopping = false;
+  $("livesend").disabled = busy;
+  $("livebtn").textContent = busy ? "● Live now" : "● Go live";
+  $("liveerr").textContent = live.state === "error" ? `Live session failed: ${live.error}` : "";
+  $("livestate").textContent = live.state === "connecting" ? `Connecting to ${live.address} and waiting for the first picture…`
+    : live.state === "running" ? `Live session "${live.title}" is on; its tab is marked ●.` : "";
+  setFeed();
+  renderLiveNote();
+}
+
+$("livebtn").onclick = () => {
+  $("golive").hidden = !$("golive").hidden;
+  $("livebtn").classList.toggle("on", !$("golive").hidden);
+  $("upload").hidden = true;
+  $("upbtn").classList.remove("on");
+};
+$("upbtn").addEventListener("click", () => {
+  $("golive").hidden = true;
+  $("livebtn").classList.remove("on");
+});
+
+$("liveform").onsubmit = async (e) => {
+  e.preventDefault();
+  const address = $("liveaddr").value.trim();
+  $("liveerr").textContent = "";
+  if (!address) { $("liveerr").textContent = "Type the phone's address first."; return; }
+  try { localStorage.setItem("egomem.phone", address); } catch (err) { /* storage blocked */ }
+  const res = await fetch("/api/live/start", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({address, title: $("livetitle").value.trim()})});
+  const body = await res.json();
+  if (!res.ok) { $("liveerr").textContent = body.detail || `HTTP ${res.status}`; return; }
+  openLive = body.id;
+  $("livetitle").value = "";
+  pollLive();
+};
+
+$("livenote").onclick = async (e) => {
+  if (e.target.id !== "stopbtn") return;
+  stopping = true;
+  renderLiveNote();
+  await fetch("/api/live/stop", {method: "POST"});
+  pollLive();
+};
 
 init();
 </script>

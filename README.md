@@ -87,13 +87,17 @@ uv run egomem-app
 
 **Or upload it from the page.** In `egomem-app`, *+ Upload recording* takes the recording folder, Pupil Cloud's "Native Recording Data" zip, or any video file. The app converts it, writes the diary right away (about 10 s for every 15 s of video) and opens it as a new tab, whose diary fills in as it is written.
 
-**Live.** The phone and this machine must reach each other: on the same local network (the phone's IP is shown in the Companion app's streaming screen; eduroam usually does not work), or with Tailscale on both, passing the phone's Tailscale IP. Through Tailscale the video is read from that address too, not from the Wi-Fi address the phone announces, and searching the network (no `--neon`) does not work.
+**Live.** The phone and this machine must reach each other: on the same local network (the phone's IP is shown in the Companion app's streaming screen; eduroam usually does not work), or with Tailscale on both, passing the phone's Tailscale IP. Searching the network (no `--neon`) does not work through Tailscale.
+
+In `egomem-app`, *● Go live* takes the phone's address and starts a session: the glasses' view replaces the video, with a status line (frames per second, how late the video arrives, entries written, clips dropped) and a *Stop* button. The diary is written exactly as for a recording, 8 frames every 15 s, and the tab answers questions about everything written so far. The same session can be run from the terminal:
 
 ```bash
 uv run egomem-live --neon <phone-ip> --probe   # phone, frames per second and lag; saves logs/neon_probe.jpg
 uv run egomem-live --neon <phone-ip>           # a diary entry every 15 s, until Ctrl+C
 uv run egomem-app                              # another terminal: the session is the tab marked ●
 ```
+
+The video is read over the Companion app's WebSocket (port 8686), the path its Monitor web page uses. The app's plain RTSP stream (port 8086) sends UDP, and on our office Wi-Fi no keyframe ever arrived whole. Over the WebSocket nothing is lost, but when the Wi-Fi carries less than the video's bitrate the phone sends fewer frames and the rest queue up and arrive late: 0.07 to 0.4 s and 25-30 frames per second on a good network, 15 to 30 s and 5-10 frames per second on a congested one (office Wi-Fi, 2026-10-26 afternoon). Past about 20 s the connection's keepalive times out and it reconnects. The status line shows all of this, and a clip whose video stopped arriving is dropped rather than described from a frozen picture. The describer must also keep up: about 9 s per 15 s clip with gemma4:31b alone on the GPU, 27 s when another model shares it, and then clips are dropped too.
 
 `--record` also records on the phone, which keeps gaze and audio for later. It is off by default because a recording may upload to the phone's Pupil Cloud workspace.
 
@@ -108,7 +112,8 @@ uv run egomem-app                              # another terminal: the session i
 | `src/egomem/memory.py` | The diary and the evidence frames |
 | `src/egomem/reader.py` | Diary + question → answer with citations |
 | `src/egomem/scenarios.py` | Scene format and building scenes from Ego4D |
-| `src/egomem/neon.py` | Neon glasses: recording → scene, and the live scene camera |
-| `src/egomem/live.py` | Live session: wall-clock sampling and the diary written as it arrives |
+| `src/egomem/neon.py` | Neon glasses: recording → scene, and the live scene camera with its phone |
+| `src/egomem/neon_stream.py` | The scene camera's video over the Companion app's WebSocket (RTSP, RTP, H.264) |
+| `src/egomem/live.py` | Live session: wall-clock sampling, the diary written as it arrives, and *Go live* |
 | `src/egomem/uploads.py` | Recordings uploaded from the app: converted to a scene, then described |
 | `src/egomem/build_memory.py`, `evaluate.py`, `app.py` | The three commands |

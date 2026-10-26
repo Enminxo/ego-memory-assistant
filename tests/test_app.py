@@ -2,7 +2,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from egomem.app import create_app
+from egomem.app import create_app, mjpeg
 from egomem.memory import MemoryEntry, TextualMemory
 from egomem.reader import Answer
 from egomem.scenarios import Scenario
@@ -71,3 +71,49 @@ def test_live_scenario_appears_after_start_and_has_no_video(tmp_path):
     assert client.get("/api/scenarios/live-1/video").status_code == 404
     client.post("/api/ask", json={"scenario": "live-1", "question": "Where are my keys?"})
     assert len(reader.seen) == 1
+
+
+def make_live_app(tmp_path):
+    from test_live import FakeDescriber, FakeStream
+
+    config = {"scenarios_dir": "scenarios", "data_dir": "data", "base_url": "http://unused",
+              "describer": {"model": "fake", "clip_sec": 0.1, "n_frames": 2, "keep_frames": True}}
+    app = create_app(config, "default", reader=FakeReader(), root=tmp_path,
+                     live_source=lambda address: FakeStream(), describer=FakeDescriber)
+    return TestClient(app), app.state.live
+
+
+def test_live_session_is_started_and_stopped_from_the_page(tmp_path):
+    from test_live import wait_for
+
+    client, live = make_live_app(tmp_path)
+    assert client.get("/api/live").json()["state"] == "idle"
+    assert client.post("/api/live/start", json={"address": " "}).status_code == 400
+
+    started = client.post("/api/live/start", json={"address": "100.1.2.3", "title": "Desk"}).json()
+    assert started["state"] in ("connecting", "running")
+    wait_for(lambda: live.status().get("clips_written", 0) >= 1)
+    assert client.post("/api/live/start", json={"address": "100.1.2.3"}).status_code == 409
+    listed = {s["id"]: s for s in client.get("/api/scenarios").json()}
+    assert listed[started["id"]]["live"] and not listed[started["id"]]["ended"]
+
+    client.post("/api/live/stop")
+    live.wait(5)
+    assert client.get("/api/live").json()["state"] == "ended"
+    assert client.get("/api/scenarios").json()[0]["ended"]
+    assert client.get("/api/live/stream.mjpg").status_code == 404  # nothing to show any more
+
+
+def test_mjpeg_sends_each_picture_as_a_part_and_skips_stale_ones():
+    from test_live import FakeStream
+
+    running = iter([True, True, False]).__next__
+    parts = list(mjpeg(FakeStream(), running, fps=1000))
+    assert len(parts) == 2 and parts[0].startswith(b"--frame\r\nContent-Type: image/jpeg")
+
+    class Stale(FakeStream):
+        def latest_jpeg(self, width=640, quality=75):
+            from egomem.neon_stream import StaleStream
+            raise StaleStream("no scene frame for 9 s")
+
+    assert list(mjpeg(Stale(), iter([True, True, False]).__next__, fps=1000)) == []

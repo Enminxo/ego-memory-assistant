@@ -14,10 +14,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Pupil Labs Neon glasses as the camera (egomem-neon, egomem-live).
+# Pupil Labs Neon glasses as the camera (egomem-neon, egomem-live, Go live in the app).
 neon = [
     "pupil-labs-realtime-api>=1.9",
     "pupil-labs-neon-recording>=2.1",
+    "websockets>=13",
 ]
 
 [dependency-groups]

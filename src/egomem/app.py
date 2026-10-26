@@ -6,7 +6,9 @@ question asked at second t is answered from those entries alone, so the replay
 behaves like a live run would.
 
 A recording uploaded from the page is described right after it arrives
-(uploads.py), and its diary shows up as it grows.
+(uploads.py), and its diary shows up as it grows. "Go live" connects to the
+Neon glasses, shows what they see, and writes the diary as they stream
+(live.LiveRunner).
 
     egomem-app --config configs/demo.yaml --tag default --port 8090
 """
@@ -14,16 +16,22 @@ A recording uploaded from the page is described right after it arrives
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+import asyncio
+import time
+from collections.abc import Callable, Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from egomem.build_memory import build
-from egomem.config import load_config, make_reader, memory_dir
+from egomem.config import load_config, make_describer, make_reader, memory_dir
+from egomem.describer import Describer
+from egomem.live import LiveRunner, StreamSource
 from egomem.memory import EvidenceStore, MemoryEntry, TextualMemory
+from egomem.neon_stream import StaleStream
 from egomem.reader import Reader
 from egomem.scenarios import Scenario, load_scenarios
 from egomem.uploads import UploadJobs
@@ -37,6 +45,11 @@ class AskRequest(BaseModel):
     t: float | None = None  # seconds into the video; None means the whole diary
 
 
+class LiveStart(BaseModel):
+    address: str
+    title: str = ""
+
+
 def entry_at(entries: list[MemoryEntry], t: float) -> MemoryEntry | None:
     """The entry whose clip contains second t."""
     for entry in entries:
@@ -45,9 +58,49 @@ def entry_at(entries: list[MemoryEntry], t: float) -> MemoryEntry | None:
     return entries[-1] if entries and t >= entries[-1].t1 else None
 
 
+def open_neon(address: str) -> StreamSource:
+    from egomem.neon import NeonLiveSource
+
+    try:
+        return NeonLiveSource(address)
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("live video needs the Pupil Labs packages: uv sync --extra neon") from exc
+
+
+def mjpeg(source: StreamSource, running: Callable[[], bool], fps: float = 10.0) -> Iterator[bytes]:
+    """The live view as MJPEG: one JPEG after another, which an <img> plays as video.
+
+    While no recent frame arrives nothing is sent, so the page keeps the last
+    picture and the status line says how old it is.
+    """
+    while running():
+        try:
+            jpeg = source.latest_jpeg()
+        except (StaleStream, TimeoutError):
+            jpeg = None
+        if jpeg is not None:
+            yield (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                   + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
+        time.sleep(1 / fps)
+
+
 def create_app(config: dict, tag: str, reader: Reader | None = None,
-               root: Path = Path("."), builder: Callable[[str], object] | None = None) -> FastAPI:
-    app = FastAPI(title="Episodic memory assistant")
+               root: Path = Path("."), builder: Callable[[str], object] | None = None,
+               live_source: Callable[[str], StreamSource] = open_neon,
+               describer: Callable[[], Describer] | None = None) -> FastAPI:
+    live = LiveRunner(config, tag, root, live_source,
+                      describer or (lambda: make_describer(config)))
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        # Ctrl+C on the app ends a live session properly: its scenario is marked ended.
+        live.stop()
+        await asyncio.to_thread(live.wait, 20)
+        live.mark_ended()
+
+    app = FastAPI(title="Episodic memory assistant", lifespan=lifespan)
+    app.state.live = live
     reader = reader or make_reader(config)
     # build() resolves its paths from the working directory, which is `root`
     # when the app is started by main().
@@ -85,9 +138,9 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
                  "demo_questions": s.demo_questions, "live": s.live,
                  "ended": s.live and "ended" in s.source,
                  "n_entries": len(load_memory(s.id))}
-                # Uploaded recordings after the demo scenes, each group in file order.
+                # Own recordings (uploaded or live) after the demo scenes, each group in file order.
                 for s in sorted(current_scenarios().values(),
-                                key=lambda s: s.id.startswith("upload-"))]
+                                key=lambda s: s.live or s.id.startswith("upload-"))]
 
     @app.get("/api/scenarios/{scenario_id}/memory")
     def memory(scenario_id: str) -> dict:
@@ -130,6 +183,34 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
         return [{**job.as_dict(), "clips_done": len(load_memory(job.id)),
                  "clip_sec": config["describer"]["clip_sec"]}
                 for job in uploads.jobs.values()]
+
+    @app.post("/api/live/start")
+    def live_start(request: LiveStart) -> dict:
+        try:
+            live.start(request.address.strip(), request.title.strip())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(409, str(exc))
+        return live.status()
+
+    @app.post("/api/live/stop")
+    def live_stop() -> dict:
+        live.stop()
+        return live.status()
+
+    @app.get("/api/live")
+    def live_status() -> dict:
+        return live.status()
+
+    @app.get("/api/live/stream.mjpg")
+    def live_stream() -> StreamingResponse:
+        source = live.source
+        if source is None or live.state not in ("connecting", "running"):
+            raise HTTPException(404, "no live session is running in this app")
+        running = lambda: live.source is source and live.state in ("connecting", "running")
+        return StreamingResponse(mjpeg(source, running), headers={"Cache-Control": "no-store"},
+                                 media_type="multipart/x-mixed-replace; boundary=frame")
 
     @app.post("/api/ask")
     def ask(request: AskRequest) -> dict:
