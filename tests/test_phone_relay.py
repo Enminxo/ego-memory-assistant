@@ -208,3 +208,25 @@ def test_ffmpeg_is_restarted_when_it_dies_and_when_the_diary_rate_changes(tmp_pa
         assert len(list(relay.diary_dir.iterdir())) == 3  # each run in its own folder
     finally:
         relay.close()
+
+
+def test_an_ffmpeg_stuck_without_pictures_is_killed_and_restarted(tmp_path):
+    """As on the phone on 2026-10-27: the video stopped and ffmpeg waited, deaf to SIGTERM."""
+    calls = tmp_path / "calls.jsonl"
+    fake = tmp_path / "ffmpeg"
+    fake.write_text(f"#!{sys.executable}\nimport json, signal, sys, time\n"
+                    "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                    f"open({str(calls)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                    "time.sleep(60)\n")
+    fake.chmod(0o755)
+    runs = lambda: calls.read_text().splitlines() if calls.exists() else []
+
+    relay = Relay(tmp_path / "relay", lambda text: None, ffmpeg=str(fake),
+                  stall_sec=0.5, startup_sec=0.5)
+    relay.start()
+    try:
+        wait_for(lambda: len(runs()) >= 2, seconds=15)
+        assert "no picture" in relay.ffmpeg_error
+    finally:
+        relay.close()
+    assert relay._proc.poll() is not None  # closing also gets rid of a deaf ffmpeg

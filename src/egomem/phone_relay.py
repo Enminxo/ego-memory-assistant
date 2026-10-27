@@ -54,6 +54,9 @@ RTSP_URL = "rtsp://127.0.0.1:8086/?camera=world"
 FACE_STALE_SEC = 5.0     # an older face photo is not handed out
 RETRY_MAX_SEC = 5.0      # longest wait between two tries of the same photo
 RESTART_SEC = 2.0        # wait before restarting an ffmpeg that died
+STALL_SEC = 10.0         # no new face photo for this long: ffmpeg is stuck, restart it
+STARTUP_SEC = 20.0       # time a fresh ffmpeg gets to connect and write its first photo
+KILL_GRACE_SEC = 3.0     # after asking ffmpeg to stop, kill it if it has not
 
 
 @dataclass
@@ -129,7 +132,8 @@ class Relay:
     """
 
     def __init__(self, workdir: Path, speak: Callable[[str], None], ffmpeg: str | None = "ffmpeg",
-                 rtsp_url: str = RTSP_URL, face_fps: float = 3.0, face_width: int = 960) -> None:
+                 rtsp_url: str = RTSP_URL, face_fps: float = 3.0, face_width: int = 960,
+                 stall_sec: float = STALL_SEC, startup_sec: float = STARTUP_SEC) -> None:
         self.workdir = Path(workdir)
         self.diary_dir = self.workdir / "diary"
         self.face_path = self.workdir / "face" / "latest.jpg"
@@ -138,6 +142,8 @@ class Relay:
         self.rtsp_url = rtsp_url
         self.face_fps = face_fps
         self.face_width = face_width
+        self.stall_sec = stall_sec
+        self.startup_sec = startup_sec
         self.diary_params: tuple[float, int, int | None] = (15.0, 8, None)
         self.session: DiarySession | None = None
         self.ffmpeg_runs = 0
@@ -163,18 +169,20 @@ class Relay:
             self._threads.append(thread)
 
     def close(self) -> None:
-        self._stop.set()
+        self._stop.set()  # the supervisor stops ffmpeg
         self.voice.put(None)
-        if self._proc is not None and self._proc.poll() is None:
-            self._proc.terminate()
         for thread in self._threads:
-            thread.join(timeout=5)
+            thread.join(timeout=KILL_GRACE_SEC + 3)
 
     # --- ffmpeg ---------------------------------------------------------------
 
     def _supervise_ffmpeg(self) -> None:
-        """Keep ffmpeg running: restart it when it dies, or when the diary's rate changes.
+        """Keep ffmpeg running: restart it when it dies, when it is stuck, or when
+        the diary's rate changes.
 
+        Stuck is what was seen on 2026-10-27: the video stopped arriving and
+        ffmpeg kept waiting, alive and silent, even through a request to stop.
+        So no new face photo for stall_sec means a restart, by force if need be.
         Each run writes into its own folder, so the numbering of a new run
         never overwrites photos still waiting to be sent.
         """
@@ -188,20 +196,52 @@ class Relay:
                 self._proc = subprocess.Popen(command, stdin=subprocess.DEVNULL,
                                               stdout=log, stderr=log)
             self.ffmpeg_runs += 1
-            code = self._proc.wait()
+            started = time.time()
+            stalled = False
+            while True:
+                try:
+                    code = self._proc.wait(timeout=1.0)
+                    break
+                except subprocess.TimeoutExpired:
+                    if self._stop.is_set() or self._restart.is_set():
+                        self._stop_ffmpeg()
+                    elif not stalled and self._stalled(started):
+                        stalled = True
+                        self._stop_ffmpeg()
             if self._stop.is_set():
                 break
             if self._restart.is_set():  # asked for: a new rate, not a failure
                 self._restart.clear()
                 continue
+            if stalled:  # it already waited stall_sec: restart right away
+                self.ffmpeg_error = (f"no picture for {self.stall_sec:g} s at "
+                                     f"{time.strftime('%H:%M:%S')}; ffmpeg restarted")
+                continue
             self.ffmpeg_error = (f"ffmpeg exited with code {code} at {time.strftime('%H:%M:%S')};"
                                  f" see {self.workdir / 'ffmpeg.log'}")
             self._stop.wait(RESTART_SEC)
 
+    def _stalled(self, started: float) -> bool:
+        """No face photo from this ffmpeg for stall_sec, once it has had time to start."""
+        now = time.time()
+        if now - started < self.startup_sec:
+            return False
+        try:
+            last = self.face_path.stat().st_mtime
+        except FileNotFoundError:
+            last = 0.0
+        return now - max(last, started) > self.stall_sec
+
+    def _stop_ffmpeg(self) -> None:
+        """Ask ffmpeg to stop, and kill it if it has not within KILL_GRACE_SEC."""
+        self._proc.terminate()
+        try:
+            self._proc.wait(timeout=KILL_GRACE_SEC)
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+
     def _restart_ffmpeg(self) -> None:
-        self._restart.set()
-        if self._proc is not None and self._proc.poll() is None:
-            self._proc.terminate()
+        self._restart.set()  # the supervisor stops it and starts the new one
 
     # --- the diary --------------------------------------------------------------
 
