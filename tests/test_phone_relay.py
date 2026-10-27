@@ -95,6 +95,7 @@ def test_one_decoder_writes_both_the_diary_and_the_face_photo():
     assert command.index("-rtsp_transport") < command.index("-i")
     assert command[-1] == "f/latest.jpg" and "-update" in command
     assert command.count("-atomic_writing") == 2  # a file that exists is a whole JPEG
+    assert "-y" in command  # the last run's face photo is still there (seen on the phone)
 
 
 def test_photos_are_sent_in_order_and_retried_until_they_arrive(relay, tmp_path):

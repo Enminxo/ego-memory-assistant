@@ -95,12 +95,14 @@ def ffmpeg_command(ffmpeg: str, rtsp_url: str, diary_dir: Path, face_path: Path,
     """One decoder, two outputs: the diary's photos and the latest face photo.
 
     Both are written to a temporary name and renamed when complete
-    (atomic_writing), so a file that exists is a whole JPEG.
+    (atomic_writing), so a file that exists is a whole JPEG. -y because the
+    face photo of an earlier run is still there, and ffmpeg would otherwise
+    ask whether to overwrite it, get no answer and quit.
     """
     diary = f"fps={n_frames}/{clip_sec:g}" + (f",scale={diary_width}:-2" if diary_width else "")
     graph = (f"[0:v]split=2[d][f];[d]{diary}[diary];"
              f"[f]fps={face_fps:g},scale={face_width}:-2[face]")
-    return [ffmpeg, "-hide_banner", "-loglevel", "warning", "-rtsp_transport", "udp",
+    return [ffmpeg, "-hide_banner", "-loglevel", "warning", "-y", "-rtsp_transport", "udp",
             "-i", rtsp_url, "-filter_complex", graph,
             "-map", "[diary]", "-q:v", "3", "-f", "image2", "-atomic_writing", "1",
             str(diary_dir / "f_%06d.jpg"),
