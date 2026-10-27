@@ -26,6 +26,7 @@ Only the standard library and Termux's ffmpeg, so that it runs as one file:
                        photos go to http://<caller>:<port>/api/phone/photo
     POST /diary/stop
     GET  /latest.jpg   the newest face photo; X-Frame-Seq changes with each one
+         /latest.jpg?after=<seq>   waits up to 2 s for a newer one, else 304
     POST /say          {"text": "Hola, Ana"}
     GET  /status
 """
@@ -300,6 +301,19 @@ class Relay:
             return None
         return data, stat.st_mtime_ns
 
+    def wait_for_face(self, after: int, timeout: float = 2.0) -> tuple[bytes, int] | None:
+        """A face photo newer than number `after`, waiting up to `timeout` s for one.
+
+        Returns the same photo again if none came, so the caller can answer 304
+        and nothing crosses the Wi-Fi twice.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            face = self.latest_face()
+            if (face is not None and face[1] != after) or time.monotonic() > deadline:
+                return face
+            self._stop.wait(0.02)
+
     def _speak_loop(self) -> None:
         """Say the texts one after another, so two greetings never talk over each other."""
         while (text := self.voice.get()) is not None:
@@ -338,15 +352,21 @@ def make_handler(relay: Relay) -> type[BaseHTTPRequestHandler]:
             return json.loads(self.rfile.read(length) or b"{}")
 
         def do_GET(self) -> None:
-            path = urllib.parse.urlparse(self.path).path
-            if path == "/status":
+            url = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(url.query)
+            if url.path == "/status":
                 self._reply(200, relay.status())
-            elif path == "/latest.jpg":
-                face = relay.latest_face()
+            elif url.path == "/latest.jpg":
+                after = int(query["after"][0]) if "after" in query else None
+                face = relay.latest_face() if after is None else relay.wait_for_face(after)
                 if face is None:
                     self._reply(503, {"error": "no recent picture from the glasses"})
                     return
                 data, seq = face
+                if seq == after:  # nothing newer than what the caller already has
+                    self.send_response(304)
+                    self.end_headers()
+                    return
                 self.send_response(200)
                 self.send_header("Content-Type", "image/jpeg")
                 self.send_header("Content-Length", str(len(data)))
@@ -355,7 +375,7 @@ def make_handler(relay: Relay) -> type[BaseHTTPRequestHandler]:
                 self.end_headers()
                 self.wfile.write(data)
             else:
-                self._reply(404, {"error": f"no {path} here"})
+                self._reply(404, {"error": f"no {url.path} here"})
 
         def do_POST(self) -> None:
             path = urllib.parse.urlparse(self.path).path

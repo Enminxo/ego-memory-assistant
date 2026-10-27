@@ -158,6 +158,18 @@ def test_the_latest_face_photo_and_the_voice(relay):
             seqs.append(response.headers["X-Frame-Seq"])
     assert seqs[0] != seqs[1]  # how facewatch tells a new picture from the same one
 
+    started = time.monotonic()  # asking for a newer one than the newest waits, then says so
+    with pytest.raises(urllib.error.HTTPError) as unchanged:
+        urllib.request.urlopen(f"{relay.url}/latest.jpg?after={seqs[1]}", timeout=5)
+    assert unchanged.value.code == 304 and time.monotonic() - started > 1.5
+
+    def new_picture() -> None:
+        time.sleep(0.3)
+        relay.face_path.write_bytes(b"face 2")
+    threading.Thread(target=new_picture).start()
+    with urllib.request.urlopen(f"{relay.url}/latest.jpg?after={seqs[1]}", timeout=5) as response:
+        assert response.read() == b"face 2"  # handed over as soon as it is written
+
     os.utime(relay.face_path, (time.time() - 60, time.time() - 60))
     with pytest.raises(urllib.error.HTTPError) as stale:
         urllib.request.urlopen(relay.url + "/latest.jpg", timeout=5)
