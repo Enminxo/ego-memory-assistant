@@ -54,7 +54,7 @@ video { width: 100%; display: block; background: #000; max-height: 56vh; }
 .ask { padding: 10px 12px 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 form { display: flex; gap: 8px; }
-input[type=text] { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 8px;
+input[type=text], select { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 8px;
                    border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
 form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; background: var(--accent);
               color: #fff; cursor: pointer; }
@@ -131,9 +131,13 @@ body.live .live-note { display: flex; }
   <form class="upform" id="liveform">
     <label class="grow">Phone address<input type="text" id="liveaddr" placeholder="IP shown in the Companion app, or its Tailscale IP" autocomplete="off"></label>
     <label class="grow">Title<input type="text" id="livetitle" placeholder="Live (date and time)" autocomplete="off"></label>
+    <label>Through<select id="livevia">
+      <option value="phone">the phone relay (recommended)</option>
+      <option value="direct">the whole video, direct</option>
+    </select></label>
     <button id="livesend">Start</button>
   </form>
-  <div class="uphelp muted">The glasses must be plugged into the phone, with the Companion app open. The video comes over the app's WebSocket (port 8686), and every 15 s eight of its frames are described into the diary, as with a recording.</div>
+  <div class="uphelp muted" id="livehelp"></div>
   <div id="liveerr"></div>
   <div id="livestate" class="muted"></div>
 </div>
@@ -480,7 +484,21 @@ function setFeed() {
 function renderLiveNote() {
   if (!current || !current.live) return;
   let html;
-  if (streaming()) {
+  if (streaming() && live.via === "phone") {
+    // Photos picked on the phone (phone_relay.py): one every clip_sec / n_frames seconds.
+    const parts = [`<b class="dot">●</b> Live through the phone`];
+    if (live.fps > 0) parts.push(`a photo every ${(1 / live.fps).toFixed(1)} s`);
+    if (live.video_age_s !== null && live.video_age_s > 6)
+      parts.push(`<span class="warn">no photo for ${Math.round(live.video_age_s)} s: the phone keeps them and sends them later</span>`);
+    else if (live.lag_s !== null && live.lag_s !== undefined)
+      parts.push(`arrived ${live.lag_s.toFixed(1)} s after it was taken`);
+    if (live.pending > 1) parts.push(`<span class="warn">${live.pending} waiting on the phone</span>`);
+    parts.push(`${live.clips_written} entries`);
+    if (live.dropped) parts.push(`<span class="warn">${live.dropped} clips dropped</span>`);
+    html = `<span>${parts.join(" · ")}</span>` + (stopping
+      ? '<span class="muted">stopping: describing the clips already taken…</span>'
+      : '<button class="chip" id="stopbtn">Stop</button>');
+  } else if (streaming()) {
     const parts = [`<b class="dot">●</b> Live`, `${live.fps} fps`];
     if (live.video_age_s !== null && live.video_age_s > 3)
       parts.push(`<span class="warn">no video for ${Math.round(live.video_age_s)} s, reconnecting</span>`);
@@ -529,6 +547,14 @@ async function pollLive() {
   renderLiveNote();
 }
 
+const LIVE_HELP = {
+  phone: "The glasses must be plugged into the phone, with the Companion app open and the relay running in Termux (python phone_relay.py --bind <phone's Tailscale IP>). The phone picks eight photos every 15 s and sends only those, so a slow Wi-Fi delays them instead of losing them.",
+  direct: "The glasses must be plugged into the phone, with the Companion app open. The whole video comes over the app's WebSocket (port 8686), and every 15 s eight of its frames are described into the diary. A busy Wi-Fi can make it fall behind.",
+};
+const showLiveHelp = () => { $("livehelp").textContent = LIVE_HELP[$("livevia").value]; };
+$("livevia").onchange = showLiveHelp;
+showLiveHelp();
+
 $("livebtn").onclick = () => {
   $("golive").hidden = !$("golive").hidden;
   $("livebtn").classList.toggle("on", !$("golive").hidden);
@@ -547,7 +573,7 @@ $("liveform").onsubmit = async (e) => {
   if (!address) { $("liveerr").textContent = "Type the phone's address first."; return; }
   try { localStorage.setItem("egomem.phone", address); } catch (err) { /* storage blocked */ }
   const res = await fetch("/api/live/start", {method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({address, title: $("livetitle").value.trim()})});
+    body: JSON.stringify({address, title: $("livetitle").value.trim(), via: $("livevia").value})});
   const body = await res.json();
   if (!res.ok) { $("liveerr").textContent = body.detail || `HTTP ${res.status}`; return; }
   openLive = body.id;

@@ -90,10 +90,13 @@ def test_live_session_is_started_and_stopped_from_the_page(tmp_path):
     assert client.get("/api/live").json()["state"] == "idle"
     assert client.post("/api/live/start", json={"address": " "}).status_code == 400
 
-    started = client.post("/api/live/start", json={"address": "100.1.2.3", "title": "Desk"}).json()
-    assert started["state"] in ("connecting", "running")
+    started = client.post("/api/live/start", json={"address": "100.1.2.3", "title": "Desk",
+                                                   "via": "direct"}).json()
+    assert started["state"] in ("connecting", "running") and started["via"] == "direct"
     wait_for(lambda: live.status().get("clips_written", 0) >= 1)
     assert client.post("/api/live/start", json={"address": "100.1.2.3"}).status_code == 409
+    assert client.post("/api/live/start", json={"address": "100.1.2.3",
+                                                "via": "carrier pigeon"}).status_code == 400
     listed = {s["id"]: s for s in client.get("/api/scenarios").json()}
     assert listed[started["id"]]["live"] and not listed[started["id"]]["ended"]
 

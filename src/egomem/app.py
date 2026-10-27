@@ -8,7 +8,8 @@ behaves like a live run would.
 A recording uploaded from the page is described right after it arrives
 (uploads.py), and its diary shows up as it grows. "Go live" connects to the
 Neon glasses, shows what they see, and writes the diary as they stream
-(live.LiveRunner).
+(live.LiveRunner): through the relay on the phone, which posts its photos to
+/api/phone/photo (phone.py), or directly over the Companion's WebSocket.
 
     egomem-app --config configs/demo.yaml --tag default --port 8090
 """
@@ -22,7 +23,7 @@ from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -32,6 +33,7 @@ from egomem.describer import Describer
 from egomem.live import LiveRunner, StreamSource
 from egomem.memory import EvidenceStore, MemoryEntry, TextualMemory
 from egomem.neon_stream import StaleStream
+from egomem.phone import PhoneSource, open_phone_source
 from egomem.reader import Reader
 from egomem.scenarios import Scenario, load_scenarios
 from egomem.uploads import UploadJobs
@@ -48,6 +50,7 @@ class AskRequest(BaseModel):
 class LiveStart(BaseModel):
     address: str
     title: str = ""
+    via: str = "phone"  # or "direct": the whole video over the Companion's WebSocket
 
 
 def entry_at(entries: list[MemoryEntry], t: float) -> MemoryEntry | None:
@@ -87,9 +90,17 @@ def mjpeg(source: StreamSource, running: Callable[[], bool], fps: float = 10.0) 
 def create_app(config: dict, tag: str, reader: Reader | None = None,
                root: Path = Path("."), builder: Callable[[str], object] | None = None,
                live_source: Callable[[str], StreamSource] = open_neon,
-               describer: Callable[[], Describer] | None = None) -> FastAPI:
+               describer: Callable[[], Describer] | None = None,
+               live_phone: Callable[[str], StreamSource] | None = None,
+               port: int = 8090) -> FastAPI:
+    """`port` is the one this app listens on: the phone relay sends its photos there."""
+    def open_phone(address: str) -> StreamSource:
+        d = config["describer"]
+        return open_phone_source(address, d["clip_sec"], d["n_frames"], port)
+
     live = LiveRunner(config, tag, root, live_source,
-                      describer or (lambda: make_describer(config)))
+                      describer or (lambda: make_describer(config)),
+                      open_phone=live_phone or open_phone)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -187,7 +198,7 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     @app.post("/api/live/start")
     def live_start(request: LiveStart) -> dict:
         try:
-            live.start(request.address.strip(), request.title.strip())
+            live.start(request.address.strip(), request.title.strip(), request.via)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
         except RuntimeError as exc:
@@ -202,6 +213,28 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     @app.get("/api/live")
     def live_status() -> dict:
         return live.status()
+
+    @app.post("/api/phone/photo")
+    async def phone_photo(request: Request, token: str, clip: int, slot: int, taken: float,
+                          pending: int = 0) -> dict:
+        """One photo of the live diary from the phone relay (phone_relay.py).
+
+        409 tells the relay to stop sending: there is no such session here (any
+        more). 503 asks it to try again: the session is still connecting.
+        """
+        source = live.source
+        if live.state == "connecting" and source is None:
+            raise HTTPException(503, "the live session is still starting")
+        if not isinstance(source, PhoneSource) or live.state not in ("connecting", "running"):
+            raise HTTPException(409, "no live session through the phone in this app")
+        jpeg = await request.body()
+        try:
+            await asyncio.to_thread(source.add_photo, token, clip, slot, taken, pending, jpeg)
+        except PermissionError as exc:
+            raise HTTPException(409, str(exc))
+        except (ValueError, OSError) as exc:  # not a JPEG, or a slot outside the clip
+            raise HTTPException(400, str(exc))
+        return {"received": source.photos_received}
 
     @app.get("/api/live/stream.mjpg")
     def live_stream() -> StreamingResponse:
@@ -238,7 +271,8 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8090)
     args = parser.parse_args()
-    uvicorn.run(create_app(load_config(args.config), args.tag), host=args.host, port=args.port)
+    uvicorn.run(create_app(load_config(args.config), args.tag, port=args.port),
+                host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

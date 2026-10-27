@@ -12,6 +12,11 @@ video has stopped arriving, rather than describing the last picture again as
 if it were the present. Frames are only kept as the evidence the app shows,
 as in egomem-build.
 
+Through the phone (phone.PhoneSource) the sampling is done on the phone by
+phone_relay.py, and whole clips arrive here instead: the session describes
+them in the same way, and counts a clip the phone could not complete as
+dropped.
+
 The session is a scenario without a video (`"live": true`), so egomem-app
 shows its diary growing and answers from it. It is started either from the
 app's "Go live" button (LiveRunner) or from the terminal:
@@ -43,6 +48,7 @@ from egomem.describer import Describer
 from egomem.memory import EvidenceStore, MemoryEntry, TextualMemory, fmt_time
 from egomem.neon import DEFAULT_PORT, NeonLiveSource, probe
 from egomem.neon_stream import StaleStream
+from egomem.phone import PhoneSource
 from egomem.scenarios import Scenario
 
 
@@ -112,13 +118,21 @@ class LiveSession:
         index = 0
         try:
             while not self.stop_event.is_set() and (n_clips is None or index < n_clips):
-                try:
-                    clip = self.sample_clip(index)
-                except StaleStream as exc:
-                    self.dropped.append(index)
-                    self.log(f"[clip {index:03d}] dropped: {exc}")
-                    index += 1
-                    continue
+                if isinstance(self.source, PhoneSource):
+                    # Whole clips, put together from the photos the phone sent.
+                    clip = self.source.next_clip(timeout=0.5)
+                    if clip is None:
+                        continue
+                    self.dropped.extend(range(index, clip.index))  # the phone source said why
+                    index = clip.index
+                else:
+                    try:
+                        clip = self.sample_clip(index)
+                    except StaleStream as exc:
+                        self.dropped.append(index)
+                        self.log(f"[clip {index:03d}] dropped: {exc}")
+                        index += 1
+                        continue
                 if self.stop_event.is_set():
                     break  # stopped halfway through: the clip is incomplete
                 try:
@@ -172,15 +186,17 @@ def open_live_scene(config: dict, scene_id: str, title: str, address: str | None
     out = root / memory_dir(config, scene_id, tag)
     if (out / "memory.jsonl").exists():
         raise FileExistsError(f"{scene_id} already has a diary; pick another id")
+    via = "phone" if isinstance(source, PhoneSource) else "direct"
     scenario = Scenario(id=scene_id, title=title, category="other", live=True,
-                        source={"neon": address or "discovered",
+                        source={"neon": address or "discovered", "via": via,
                                 "started": datetime.now().isoformat(timespec="seconds")})
     scenario.save(root / config["scenarios_dir"] / f"{scene_id}.json")
 
     d = config["describer"]
     out.mkdir(parents=True, exist_ok=True)
-    (out / "run.json").write_text(json.dumps({"describer": d, "base_url": config["base_url"],
-                                              "source": "neon-live"}, indent=1))
+    (out / "run.json").write_text(json.dumps({
+        "describer": d, "base_url": config["base_url"],
+        "source": "phone-relay" if via == "phone" else "neon-live"}, indent=1))
     memory = TextualMemory.load(out / "memory.jsonl")
     evidence = EvidenceStore(out / "frames") if d.get("keep_frames") else None
     session = LiveSession(source, describer, memory, evidence, d["clip_sec"], d["n_frames"])
@@ -229,18 +245,22 @@ class LiveRunner:
     writing the scenario, so the tab never opens on a session with no
     picture. The session is the same LiveSession egomem-live runs.
 
-    `open_source(address)` connects to the glasses (NeonLiveSource in the app,
-    a fake in the tests) and `make_describer()` gives the describer.
+    `open_source(address)` connects to the glasses directly (NeonLiveSource in
+    the app, a fake in the tests), `open_phone(address)` through the relay on
+    the phone (phone.open_phone_source), and `make_describer()` gives the
+    describer.
     """
 
     def __init__(self, config: dict, tag: str, root: Path,
                  open_source: Callable[[str], StreamSource],
                  make_describer: Callable[[], Describer],
-                 log: Callable[[str], None] = print, first_frame_sec: float = 30.0) -> None:
+                 log: Callable[[str], None] = print, first_frame_sec: float = 30.0,
+                 open_phone: Callable[[str], StreamSource] | None = None) -> None:
         self.config = config
         self.tag = tag
         self.root = Path(root)
         self.open_source = open_source
+        self.open_phone = open_phone
         self.make_describer = make_describer
         self.log = log
         # Long enough for the stream to reconnect once: after a while idle, the
@@ -250,6 +270,7 @@ class LiveRunner:
         self.id: str | None = None
         self.title = ""
         self.address = ""
+        self.via = "direct"  # or "phone"
         self.error: str | None = None
         self.source: StreamSource | None = None
         self.session: LiveSession | None = None
@@ -267,16 +288,20 @@ class LiveRunner:
             scene_id = f"{base}-{n}"
         return scene_id
 
-    def start(self, address: str, title: str = "") -> None:
+    def start(self, address: str, title: str = "", via: str = "direct") -> None:
         if not address:
             raise ValueError("give the phone's address, shown in the Companion app")
+        if via not in ("direct", "phone"):
+            raise ValueError(f"go live 'direct' or through the 'phone', not {via!r}")
+        if via == "phone" and self.open_phone is None:
+            raise ValueError("this app has no way to reach a phone relay")
         with self._lock:
             if self.state in ("connecting", "running"):
                 raise RuntimeError(f"the live session {self.id} is still on; stop it first")
             now = datetime.now()
             self.id = self._new_id(now)
             self.title = title or f"Live {now:%d %b %H:%M}"
-            self.address, self.error = address, None
+            self.address, self.via, self.error = address, via, None
             self.source, self.session, self.scenario = None, None, None
             self.state = "connecting"
             self._stop.clear()
@@ -285,7 +310,8 @@ class LiveRunner:
 
     def _run(self) -> None:
         try:
-            self.source = self.open_source(self.address)
+            opener = self.open_phone if self.via == "phone" else self.open_source
+            self.source = opener(self.address)
             deadline = time.monotonic() + self.first_frame_sec
             while self.source.video_age() is None and time.monotonic() < deadline:
                 if self._stop.wait(0.2):
@@ -336,15 +362,17 @@ class LiveRunner:
 
     def status(self) -> dict:
         status = {"state": self.state, "id": self.id, "title": self.title,
-                  "address": self.address, "error": self.error,
+                  "address": self.address, "via": self.via, "error": self.error,
                   "clip_sec": self.config["describer"]["clip_sec"]}
         source, session = self.source, self.session
         if source is not None and self.state in ("connecting", "running"):
             lag, age = source.lag(), source.video_age()
-            status.update(fps=round(source.fps, 1), reconnects=source.reconnects,
+            status.update(fps=round(source.fps, 2), reconnects=source.reconnects,
                           lag_s=round(lag, 2) if lag is not None else None,
                           video_age_s=round(age, 1) if age is not None else None,
                           stream_error=repr(source.error) if source.error else None)
+            if isinstance(source, PhoneSource):
+                status.update(pending=source.pending)
         if session is not None:
             status.update(clips_written=len(session.written), dropped=len(session.dropped))
         return status
