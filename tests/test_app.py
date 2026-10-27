@@ -120,3 +120,73 @@ def test_mjpeg_sends_each_picture_as_a_part_and_skips_stale_ones():
             raise StaleStream("no scene frame for 9 s")
 
     assert list(mjpeg(Stale(), iter([True, True, False]).__next__, fps=1000)) == []
+
+
+def trashed(client, scenario_id: str) -> tuple[int, dict]:
+    response = client.delete(f"/api/scenarios/{scenario_id}")
+    return response.status_code, response.json()
+
+
+def test_an_own_live_session_goes_to_the_trash_with_its_diary(tmp_path):
+    client, _ = make_app(tmp_path)
+    Scenario(id="live-1", title="A test", category="other", live=True,
+             source={"ended": "2026-10-27T19:30:00"}).save(tmp_path / "scenarios/live-1.json")
+    memory_file = tmp_path / "data/memories/live-1/default/memory.jsonl"
+    TextualMemory(memory_file).append(MemoryEntry(0, 0, 15, "I sat at my desk.", 9.0, 8))
+    (memory_file.parent / "frames").mkdir()
+    (memory_file.parent / "frames/clip0000_0.jpg").write_bytes(b"jpeg")
+    diary = memory_file.read_text()
+    listed = {s["id"]: s for s in client.get("/api/scenarios").json()}
+    assert listed["live-1"]["own"] and not listed["s"]["own"]
+
+    status, body = trashed(client, "live-1")
+    assert status == 200
+    trash = tmp_path / body["trashed"]
+    assert trash.parent == tmp_path / "data/trash" and trash.name.endswith("_live-1")
+    assert [s["id"] for s in client.get("/api/scenarios").json()] == ["s"]
+    assert not (tmp_path / "scenarios/live-1.json").exists()
+    assert not (tmp_path / "data/memories/live-1").exists()
+    # the same relative paths inside the trash: moving them back restores the session
+    assert (trash / "scenarios/live-1.json").exists()
+    assert (trash / "data/memories/live-1/default/memory.jsonl").read_text() == diary
+    assert (trash / "data/memories/live-1/default/frames/clip0000_0.jpg").read_bytes() == b"jpeg"
+
+
+def test_an_upload_goes_to_the_trash_with_its_video_and_its_files(tmp_path):
+    client, _ = make_app(tmp_path)
+    Scenario(id="upload-window", title="Window", category="other",
+             video="data/scenes/upload-window.mp4").save(tmp_path / "scenarios/upload-window.json")
+    (tmp_path / "data/scenes/upload-window.mp4").write_bytes(b"video")
+    (tmp_path / "data/uploads/upload-window").mkdir(parents=True)
+    (tmp_path / "data/uploads/upload-window/raw.mov").write_bytes(b"raw")
+
+    status, body = trashed(client, "upload-window")
+    assert status == 200
+    trash = tmp_path / body["trashed"]
+    assert (trash / "data/scenes/upload-window.mp4").read_bytes() == b"video"
+    assert (trash / "data/uploads/upload-window/raw.mov").read_bytes() == b"raw"
+    assert not (tmp_path / "data/scenes/upload-window.mp4").exists()
+    assert (tmp_path / "data/scenes/s.mp4").exists()  # the demo scene's video is untouched
+
+
+def test_demo_scenes_and_unknown_ids_cannot_be_deleted(tmp_path):
+    client, _ = make_app(tmp_path)
+    status, body = trashed(client, "s")
+    assert status == 403 and "demo scene" in body["detail"]
+    assert (tmp_path / "scenarios/s.json").exists() and (tmp_path / "data/scenes/s.mp4").exists()
+    assert not (tmp_path / "data/trash").exists()
+    assert trashed(client, "nope")[0] == 404
+
+
+def test_the_live_session_still_running_cannot_be_deleted(tmp_path):
+    from test_live import wait_for
+
+    client, live = make_live_app(tmp_path)
+    started = client.post("/api/live/start", json={"address": "100.1.2.3", "via": "direct"}).json()
+    wait_for(lambda: live.state == "running")
+    status, body = trashed(client, started["id"])
+    assert status == 409 and "still on" in body["detail"]
+    client.post("/api/live/stop")
+    live.wait(5)
+    assert trashed(client, started["id"])[0] == 200
+    assert started["id"] not in [s["id"] for s in client.get("/api/scenarios").json()]

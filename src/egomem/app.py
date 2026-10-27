@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import shutil
 import time
 from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -59,6 +61,31 @@ def entry_at(entries: list[MemoryEntry], t: float) -> MemoryEntry | None:
         if entry.t0 <= t < entry.t1:
             return entry
     return entries[-1] if entries and t >= entries[-1].t1 else None
+
+
+def own_recording(scenario: Scenario) -> bool:
+    """Recorded by the user (live or uploaded), not one of the demo scenes."""
+    return scenario.live or scenario.id.startswith("upload-")
+
+
+def trash_session(root: Path, config: dict, scenario: Scenario) -> Path:
+    """Move everything of one session to data/trash/<time>_<id>/, keeping its relative paths.
+
+    Nothing is erased: to bring a session back, move its files back. The
+    scenario file goes first, so the tab disappears even if a later move fails.
+    """
+    data = Path(config["data_dir"])
+    parts = [Path(config["scenarios_dir"]) / f"{scenario.id}.json",
+             data / "memories" / scenario.id,
+             data / "uploads" / scenario.id]
+    if scenario.video is not None:  # an upload's converted video
+        parts.append(Path(scenario.video))
+    trash = data / "trash" / f"{datetime.now():%Y%m%d-%H%M%S}_{scenario.id}"
+    for part in parts:
+        if (root / part).exists():
+            (root / trash / part).parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(root / part), str(root / trash / part))
+    return trash
 
 
 def open_neon(address: str) -> StreamSource:
@@ -147,11 +174,24 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     def list_scenarios() -> list[dict]:
         return [{"id": s.id, "title": s.title, "category": s.category,
                  "demo_questions": s.demo_questions, "live": s.live,
-                 "ended": s.live and "ended" in s.source,
+                 "ended": s.live and "ended" in s.source, "own": own_recording(s),
                  "n_entries": len(load_memory(s.id))}
                 # Own recordings (uploaded or live) after the demo scenes, each group in file order.
-                for s in sorted(current_scenarios().values(),
-                                key=lambda s: s.live or s.id.startswith("upload-"))]
+                for s in sorted(current_scenarios().values(), key=own_recording)]
+
+    @app.delete("/api/scenarios/{scenario_id}")
+    def delete_scenario(scenario_id: str) -> dict:
+        """Move one of the user's own sessions to data/trash/ (trash_session)."""
+        scenario = get_scenario(scenario_id)
+        if not own_recording(scenario):
+            raise HTTPException(403, f"“{scenario.title}” is a demo scene: only your own "
+                                     "recordings can be deleted")
+        if live.id == scenario_id and live.state in ("connecting", "running"):
+            raise HTTPException(409, "this live session is still on: stop it first")
+        job = uploads.jobs.get(scenario_id)
+        if job is not None and job.stage in ("queued", "converting", "describing"):
+            raise HTTPException(409, "this upload is still being converted or described")
+        return {"trashed": str(trash_session(root, config, scenario))}
 
     @app.get("/api/scenarios/{scenario_id}/memory")
     def memory(scenario_id: str) -> dict:

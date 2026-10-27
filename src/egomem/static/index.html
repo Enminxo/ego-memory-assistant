@@ -34,6 +34,12 @@ main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .panel h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
             margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line); font-weight: 600; }
+/* Deleting one of the user's own sessions (to data/trash/): beside the diary's heading. */
+.panel h2.withtool { display: flex; align-items: center; gap: 10px; }
+.panel h2 .chip.del { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400;
+                      font-size: 12px; padding: 2px 10px; color: var(--err); }
+#delerr { color: var(--err); text-transform: none; letter-spacing: 0; font-weight: 400; }
+#delerr:empty { display: none; }
 video { width: 100%; display: block; background: #000; max-height: 56vh; }
 .timeline { position: relative; height: 10px; margin: 10px 12px; background: var(--chip); border-radius: 5px; }
 .timeline .seg { position: absolute; top: 0; bottom: 0; border-right: 1px solid var(--panel); }
@@ -157,7 +163,7 @@ body.live .live-note { display: flex; }
   </section>
   <section>
     <div class="panel">
-      <h2>Diary written by the model</h2>
+      <h2 class="withtool">Diary written by the model<span id="delerr"></span><button class="chip del" id="delbtn" hidden>Delete session…</button></h2>
       <div id="diary"></div>
     </div>
     <div class="panel" style="margin-top:14px">
@@ -238,6 +244,8 @@ async function load(id) {
   }
   setFeed();
   renderLiveNote();
+  renderDelete();
+  $("delerr").textContent = "";
   shown = -1; selected = null;
   $("answers").innerHTML = "";
   $("evidence").innerHTML = '<div class="muted">Click a diary entry or a moment cited in an answer.</div>';
@@ -254,6 +262,29 @@ async function load(id) {
   update();
   if (current.live && entries.length) showEvidence(entries[entries.length - 1], false);
 }
+
+// --- Deleting a session ----------------------------------------------------------
+// Only the user's own recordings, and never the live session still running: the
+// server moves its files to data/trash/, so a mistake can be undone by hand.
+function renderDelete() {
+  const running = current && live.id === current.id && ["connecting", "running"].includes(live.state);
+  $("delbtn").hidden = !current || !current.own || running;
+}
+
+$("delbtn").onclick = async () => {
+  if (!current) return;
+  const {id, title} = current;
+  if (!confirm(`Move "${title}" to the trash?\n\nIt disappears from this page; its files go to data/trash/ in case you want them back.`)) return;
+  const res = await fetch(`/api/scenarios/${encodeURIComponent(id)}`, {method: "DELETE"});
+  if (!res.ok) {
+    $("delerr").textContent = (await res.json()).detail || `HTTP ${res.status}`;
+    return;
+  }
+  scenarios = await (await fetch("/api/scenarios")).json();
+  current = null;
+  renderTabs();
+  if (scenarios.length) load(scenarios[0].id);
+};
 
 // Fetch the diary again: every 3 s for a live session, and on each poll of the
 // uploads while an uploaded recording is being described.
@@ -545,6 +576,7 @@ async function pollLive() {
     : live.state === "running" ? `Live session "${live.title}" is on; its tab is marked ●.` : "";
   setFeed();
   renderLiveNote();
+  renderDelete();  // the session on screen may have just started or ended
 }
 
 const LIVE_HELP = {
