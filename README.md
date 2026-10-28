@@ -2,7 +2,9 @@
 
 Prototype of an assistant that records what a person does with a wearable camera and answers questions about their recent past: "where did I leave my keys?", "did I turn off the stove?". It is aimed at mild cognitive impairment and early Alzheimer's disease.
 
-![The demo page: a recording from the Neon glasses, its diary, and a question answered with the moment it came from](assets/app.png)
+![The demo page: a recording from the Neon glasses, its diary, and a question answered with the moment it came from](assets/app.jpg)
+
+*The sample recording in the demo page: the answer cites the moment it comes from, and the frames behind it show what the describer missed (the hand is pushing the window shut; the diary says it "remained closed").*
 
 ```
 video ─▶ 15 s clips ─▶ [describer · VLM] ─▶ timestamped text diary
@@ -36,7 +38,7 @@ curl -LO https://github.com/Enminxo/ego-memory-assistant/releases/download/v0.1.
 On the page, *+ Upload recording* takes `close-the-window.mp4`. The diary is written as the video is read, one entry per 15 s, and then you can ask it questions:
 
 - "What did I do at the window?" and "Did I open a door?" are answered from the diary, with the moment they come from.
-- "Did I close the window?" fails, and it is worth seeing why: the window is pushed shut at 0:11-0:15, but the diary only says "I placed my hand against the glass". A question can only be answered if the describer wrote it down.
+- "Did I close the window?" fails, and it is worth seeing why: the window is pushed shut at 0:11-0:15, but the diary only says that a hand touched the window (in one of our two runs it even added "the window remained closed"). A question can only be answered if the describer wrote it down.
 
 ## Models
 
