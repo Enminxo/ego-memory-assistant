@@ -20,7 +20,7 @@ face seen two seconds ago is of no use, so nothing queues up for it.
 Only the standard library and Termux's ffmpeg, so that it runs as one file:
 
     pkg install python ffmpeg termux-api
-    python phone_relay.py --bind 100.64.0.1      # the phone's Tailscale address
+    python phone_relay.py --bind <phone-tailscale-ip>      # the phone's Tailscale address
 
     POST /diary/start  {"port": 8090, "token": "...", "clip_sec": 15, "n_frames": 8}
                        photos go to http://<caller>:<port>/api/phone/photo

@@ -7,7 +7,7 @@ data/
 /data
 results/
 logs/
-# Live sessions from the glasses: personal recordings, not demo material.
-scenarios/live-*.json
-# Recordings uploaded from the app: personal, not demo material.
-scenarios/upload-*.json
+# Scenes are made on each machine: the Ego4D ones by scripts/make_demo_scenes.sh
+# (their questions come from QAEgo4D, whose license does not allow sharing them),
+# the others from your own recordings, live sessions and uploads.
+scenarios/*.json
