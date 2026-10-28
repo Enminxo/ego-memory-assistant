@@ -5,6 +5,8 @@ import pytest
 
 from egomem.neon_stream import (H264Depacketizer, SceneStream, StaleStream, StreamParser,
                                 capture_time, parse_sdp, parse_sender_reports, ws_url)
+
+pytest.importorskip("websockets")  # the fake phone needs it: uv sync --extra neon
 from fake_companion import (FakeCompanion, encode_flat_frames, interleave, rtp_packets,
                             sender_report)
 
