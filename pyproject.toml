@@ -3,6 +3,7 @@ name = "ego-memory-assistant"
 version = "0.1.0"
 description = "Episodic memory assistant prototype: egocentric video to a textual diary that answers questions"
 requires-python = ">=3.11"
+license = "MIT"
 dependencies = [
     "av",
     "fastapi",
