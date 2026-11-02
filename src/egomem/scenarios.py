@@ -181,9 +181,59 @@ def make_ego4d_scenes(spec_path: Path, video_dir: Path, nlq_files: list[Path],
     return scenarios
 
 
+def make_qaego4d_split(split: str, video_dir: Path, nlq_files: list[Path],
+                       qaego4d_dir: Path, scenes_dir: Path) -> list[Scenario]:
+    """One scenario per NLQ clip of a QAEgo4D split, as a segment of its full video.
+
+    Unlike make_ego4d_scenes nothing is cut or re-encoded: the scenario points
+    at the full Ego4D video and stores the clip's [start, end] in
+    source["segment"], which build_memory reads. Meant for evaluation over a
+    whole split (e.g. test_close: 500 questions over 148 clips).
+    """
+    rows = json.loads((Path(qaego4d_dir) / f"annotations.QaEgo4D_{split}.json").read_text())
+    clips = load_nlq_clips(nlq_files)
+    by_clip: dict[str, list[dict]] = {}
+    for r in rows:
+        by_clip.setdefault(r["video_id"], []).append(r)
+    scenarios = []
+    for clip_uid, clip_rows in sorted(by_clip.items()):
+        if clip_uid not in clips:
+            raise KeyError(f"clip {clip_uid} not found in the NLQ annotations")
+        clip = clips[clip_uid]
+        for r in clip_rows:
+            # Join checks: same full video, and the answer window inside the clip.
+            if "video_uid" in r and r["video_uid"] != clip["video_uid"]:
+                raise ValueError(f"question {r['sample_id']}: video {r['video_uid']} "
+                                 f"is not the video of clip {clip_uid}")
+            if not (clip["start"] - 1 <= r["video_start_sec"] <= clip["end"] + 1):
+                raise ValueError(f"question {r['sample_id']} lies outside clip {clip_uid}")
+        video = (Path(video_dir) / f"{clip['video_uid']}.mp4").resolve()
+        if not video.exists():
+            raise FileNotFoundError(f"missing video {video} for clip {clip_uid}")
+        questions = [Question(id=r["sample_id"], question=r["question"].strip(),
+                              answer=r["answer"], wrong_answers=r.get("wrong_answers", []),
+                              t0=round(r["video_start_sec"] - clip["start"], 2),
+                              t1=round(r["video_end_sec"] - clip["start"], 2),
+                              category=categorize(r["question"]))
+                     for r in sorted(clip_rows, key=lambda r: r["video_start_sec"])]
+        scenario = Scenario(
+            id=clip_uid, title=f"QAEgo4D {split} {clip_uid[:8]}", category="other",
+            video=str(video), questions=questions,
+            source={"dataset": "ego4d", "clip_uid": clip_uid, **clip,
+                    "segment": [clip["start"], clip["end"]], "qaego4d_split": split})
+        scenario.save(Path(scenes_dir) / f"{clip_uid}.json")
+        scenarios.append(scenario)
+    n_questions = sum(len(s.questions) for s in scenarios)
+    print(f"QAEgo4D {split}: {len(scenarios)} clips, {n_questions} questions -> {scenes_dir}")
+    return scenarios
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build scenarios from Ego4D NLQ clips.")
-    parser.add_argument("--spec", type=Path, required=True, help="YAML listing the scenes")
+    parser.add_argument("--spec", type=Path, help="YAML listing the scenes")
+    parser.add_argument("--qaego4d-split",
+                        help="instead of --spec: one scenario per clip of this QAEgo4D split "
+                             "(e.g. test_close), as segments of the full videos")
     parser.add_argument("--ego4d-videos", type=Path, required=True,
                         help="directory with <video_uid>.mp4 (e.g. nlq/v2/video_540ss)")
     parser.add_argument("--nlq", type=Path, nargs="+", required=True,
@@ -193,8 +243,14 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=Path("."), help="repo root")
     parser.add_argument("--scenarios", type=Path, default=Path("scenarios"))
     args = parser.parse_args()
-    make_ego4d_scenes(args.spec, args.ego4d_videos, args.nlq, args.qaego4d,
-                      args.root, args.scenarios)
+    if args.qaego4d_split is not None:
+        make_qaego4d_split(args.qaego4d_split, args.ego4d_videos, args.nlq, args.qaego4d,
+                           args.scenarios)
+    elif args.spec is not None:
+        make_ego4d_scenes(args.spec, args.ego4d_videos, args.nlq, args.qaego4d,
+                          args.root, args.scenarios)
+    else:
+        parser.error("give --spec or --qaego4d-split")
 
 
 if __name__ == "__main__":

@@ -25,16 +25,27 @@ class FrameSource(Protocol):
 
 
 class VideoFileSource:
-    """Decode frames at given timestamps from a video file with PyAV."""
+    """Decode frames at given timestamps from a video file with PyAV.
 
-    def __init__(self, path: Path) -> None:
+    `start` and `end` (seconds in the file) restrict the source to one segment
+    of a long video, e.g. an Ego4D NLQ clip inside its full video, without
+    cutting and re-encoding it. Times passed to `frames_at` are then relative
+    to `start`, exactly as for a file that holds only the segment.
+    """
+
+    def __init__(self, path: Path, start: float = 0.0, end: float | None = None) -> None:
         self.path = Path(path)
+        self.start = float(start)
         with av.open(str(self.path)) as container:
             stream = container.streams.video[0]
             if stream.duration is not None:
-                self.duration = float(stream.duration * stream.time_base)
+                file_duration = float(stream.duration * stream.time_base)
             else:
-                self.duration = container.duration / av.time_base
+                file_duration = container.duration / av.time_base
+        stop = file_duration if end is None else min(float(end), file_duration)
+        if stop <= self.start:
+            raise ValueError(f"empty segment [{self.start}, {stop}] in {self.path}")
+        self.duration = stop - self.start
 
     def frames_at(self, times: list[float]) -> list[np.ndarray]:
         """Return one RGB uint8 frame per requested time, in order.
@@ -45,7 +56,8 @@ class VideoFileSource:
         frames = []
         with av.open(str(self.path)) as container:
             stream = container.streams.video[0]
-            for t in times:
+            for rel_t in times:
+                t = self.start + rel_t
                 container.seek(int(t / stream.time_base), stream=stream, backward=True)
                 chosen = None
                 for frame in container.decode(stream):

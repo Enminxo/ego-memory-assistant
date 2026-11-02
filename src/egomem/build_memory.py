@@ -58,7 +58,13 @@ def build(config: dict, scenario_id: str, tag: str, limit: int | None = None) ->
     memory = TextualMemory.load(out / "memory.jsonl")
     evidence = EvidenceStore(out / "frames") if d.get("keep_frames") else None
     describer = make_describer(config)
-    source = VideoFileSource(Path(scenario.video))
+    # A scenario may point at a segment of a long video instead of a cut file
+    # (see scenarios.make_qaego4d_split): source["segment"] = [start, end].
+    segment = scenario.source.get("segment")
+    if segment is not None:
+        source = VideoFileSource(Path(scenario.video), start=segment[0], end=segment[1])
+    else:
+        source = VideoFileSource(Path(scenario.video))
 
     done = {e.index for e in memory.entries()}
     total = len(clip_bounds(source.duration, d["clip_sec"]))
@@ -81,10 +87,13 @@ def main() -> None:
     parser.add_argument("--tag", default="default", help="name of this run")
     parser.add_argument("--n-frames", type=int, help="override describer.n_frames")
     parser.add_argument("--seed", type=int, help="override describer.seed")
+    parser.add_argument("--model", help="override describer.model, e.g. gemma4:e4b")
     parser.add_argument("--limit", type=int, help="describe at most N new clips")
     args = parser.parse_args()
 
     config = load_config(args.config)
+    if args.model is not None:
+        config["describer"]["model"] = args.model
     if args.n_frames is not None:
         config["describer"]["n_frames"] = args.n_frames
     if args.seed is not None:

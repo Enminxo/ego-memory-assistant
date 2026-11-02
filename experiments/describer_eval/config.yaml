@@ -1,0 +1,21 @@
+# Describer evaluation on QAEgo4D test_close (see README.md in this folder).
+# Same describer and reader settings as configs/demo.yaml; only the paths differ.
+
+base_url: http://localhost:11434/v1
+scenarios_dir: /home/enz/data/ego-memory-assistant/describer_eval/scenarios
+data_dir: /home/enz/data/ego-memory-assistant/describer_eval   # memories/<clip_uid>/<tag>/
+
+describer:
+  model: gemma4:31b       # overridden per run with --model
+  clip_sec: 15
+  n_frames: 8
+  max_tokens: 160
+  max_words: 60
+  temperature: 0.2
+  seed: 0
+  keep_frames: false      # frames can be decoded again from the video for spot checks
+
+reader:
+  model: gemma4:31b
+  max_tokens: 200
+  temperature: 0.0
