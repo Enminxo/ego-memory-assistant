@@ -72,6 +72,47 @@ Reader gemma4:31b, constrained to a letter, option order fixed by seed 0
 - **Kill:** if the primary interval includes 0 on these 500 questions, "the diary helps"
   is not established on QAEgo4D test_close, and that is the result to report.
 
+## Results (3 Nov 2026, one run, seed 0)
+
+All 4,811 windows of the 148 clips were written by both describers. Median latency per
+window: 1.8 s (e4b) and 9.6 s (g31b), both under the 15 s window.
+
+**A0: the gate is passed.** Pooled precision 13.5% (e4b) and 29.5% (g31b); difference
++16.0 points [14.3, 17.7]. Secondary (no stop words): +15.6 [14.0, 17.2]. Recall: +18.1
+[16.5, 19.7]. Both name about as many labels per window (4.5 and 4.2), so the gap is not
+verbosity. Robustness to the narration margin (not pre-registered): +15.1 [13.5, 16.8]
+with 0 s and +16.8 [15.1, 18.6] with 5 s.
+
+By-eye check of the 50 sampled unsupported mentions per model, on the 8 frames of each
+window (`eye_check_a0.json`, one rater, frames at 160x120):
+
+| | invented | real, not narrated | negation | word is not that object | unclear |
+|---|---|---|---|---|---|
+| e4b | 20 | 15 | 7 | 3 | 5 |
+| g31b | 0 | 40 | 1 | 6 | 3 |
+
+So the absolute precision underestimates both describers, most of all g31b, and the
+order holds. 0 of 50 is compatible with up to about 6% invented; 20 of 50 with 27-54%.
+
+Most of e4b's inventions echo the prompt's list of example objects ("I picked up my keys
+and placed them on the counter near the sink"). Over all windows, "keys" appears in 1,568
+e4b entries (32.6%), 13 g31b entries and 1 narration window; any of keys, wallet, phone,
+glasses or bags in 63.2% (e4b), 16.7% (g31b) and 6.4% (narration). Negations ("I do not
+interact with any doors") appear in 11.7% (e4b) and 9.4% (g31b) of the windows, and the
+taxonomy counts their objects as mentions.
+
+**B: the diary helps.** Accuracy on the 500 questions: no memory 31.2%, e4b 43.6%,
+g31b 53.4%, narration 59.4%. Primary g31b minus no memory: +22.2 points [17.7, 26.6].
+Narration minus g31b +6.0 [0.7, 11.1]; g31b minus e4b +9.8 [5.5, 14.1]; e4b minus no
+memory +12.4 [7.5, 16.9]. The predicted order holds. By category, g31b is at or above the
+narration diary on "other" (50.7% vs 48.8%) and "people" (76.2% vs 66.7%, n = 21), so the
+narration diary is a soft ceiling, not an upper bound.
+
+**Not established / not run.** One option-shuffling seed; the reader is the same model as
+the g31b describer, so g31b minus e4b may include self-preference (a reader from another
+family would test it); the cheap alternative to distillation, e4b with a prompt without
+the example objects, has not been run.
+
 ## Files
 
 - `config.yaml`: paths and settings (data under `~/data/ego-memory-assistant/describer_eval`).

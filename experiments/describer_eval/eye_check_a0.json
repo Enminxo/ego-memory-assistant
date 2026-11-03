@@ -1,0 +1,5 @@
+{
+ "about": "By-eye check of A0 (pre-registered): the 50 unsupported mentions per model sampled by object_precision.py (seed 0, results/a0/spot_check_<tag>.csv), each judged on the 8 describer frames of its window at 160x120. One rater (Claude), 3 Nov 2026. Codes: V = the object is visible (real, the narration just does not name it); I = not visible in any frame (invented); N = named inside a negation ('I do not interact with any doors'); T = the word is not that object (colour, verb, brand: 'orange shirt', 'see', 'Cow Tales'); U = cannot tell from the frames.",
+ "e4b": "I N I N V I V V I I I V V N T I V I I I I V I V V I T U I I I V U I I N U U N I N V V U V V V I N T",
+ "g31b": "V V V V V V V V V V V V V V V U V V N V U V V T U V T V V V T V T V V V V V V V V V V V V T T V V V"
+}
