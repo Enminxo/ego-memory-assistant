@@ -113,9 +113,45 @@ the g31b describer, so g31b minus e4b may include self-preference (a reader from
 family would test it); the cheap alternative to distillation, e4b with a prompt without
 the example objects, has not been run.
 
+## Phase 1a: three checks before any training
+
+Pre-registered on 2026-11-04, before any diary or evaluation of this phase was run.
+Same 148 clips, 500 questions, bootstrap over clips (1,000 resamples, seed 0).
+
+**1a-1. A prompt without example objects (the test that could kill distillation).**
+New diary `e4b_noex`: gemma4:e4b with `--prompt-variant no_examples`
+(`egomem.prompts.DESCRIBER_TASK_NO_EXAMPLES`): the same priorities without "(keys, wallet,
+phone, glasses, bags)", plus the rule "Mention only objects and actions that appear in these
+frames: do not list things I did not do or did not see". Written once, not tuned on these
+results. g31b keeps the default prompt.
+
+- **Primary:** B accuracy g31b minus e4b_noex (Gemma reader, seed 0).
+- **Rule:** if its interval includes 0 or lies below 0, the prompt alone closes the gap and
+  the SFT is not started as planned. Otherwise the SFT goes ahead, and its baseline is the
+  better of e4b and e4b_noex on B.
+- **Secondary:** B e4b_noex minus e4b; A0 precision of e4b_noex against e4b and against g31b
+  (same rule and stop words as A0); share of windows naming keys, wallet, phone, glasses or
+  bags, and share with a negation; by-eye check of 50 unsupported e4b_noex mentions, coded
+  as in `eye_check_a0.json`.
+- **Prediction:** the prompt removes most of the echo (keys well under 32.6% of windows)
+  and helps B, but g31b stays ahead.
+
+**1a-2. Option order.** All five diaries again with option-shuffling seed 1 (Gemma reader).
+A comparison of 1a-1 or of B whose interval excluded 0 replicates if it keeps its sign with
+seed 1; if the sign flips, it is reported as not established.
+
+**1a-3. A reader from another family.** All five diaries with qwen3.8:27b as reader
+(`config_reader_qwen27.yaml`, seed 0; thinking off, letter constrained as for Gemma). Checks
+whether the g31b advantage is the Gemma reader preferring Gemma's own text. Key comparisons:
+g31b minus no memory and g31b minus e4b. If g31b minus e4b includes 0 with this reader, the
+g31b advantage is not established beyond the Gemma reader, and the SFT must report both
+readers.
+
 ## Files
 
 - `config.yaml`: paths and settings (data under `~/data/ego-memory-assistant/describer_eval`).
 - `run_diaries.sh`: writes the `e4b` and `g31b` diaries clip by clip (resumable).
 - `narration_diary.py`: writes the `narration` diaries.
 - `object_precision.py`: A0.
+- `run_phase1a.sh`: phase 1a in one chain; `prompt_echo.py`: echo and negation counts;
+  `config_reader_qwen27.yaml`: the same settings with qwen3.8:27b as reader.

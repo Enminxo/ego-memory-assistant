@@ -41,18 +41,21 @@ class VLMDescriber:
     """Describe clips with a vision-language model behind a chat server."""
 
     def __init__(self, client: ChatClient, max_tokens: int = 160, max_words: int = 60,
-                 temperature: float = 0.2, seed: int | None = None) -> None:
+                 temperature: float = 0.2, seed: int | None = None,
+                 prompt_variant: str = "default") -> None:
         self.client = client
         self.max_tokens = max_tokens
         self.max_words = max_words
         self.temperature = temperature
         self.seed = seed
+        self.prompt_variant = prompt_variant
 
     def describe(self, frames: list[np.ndarray], t0: float, t1: float) -> ChatResult:
         # Each clip is described on its own, without the previous entry as
         # context: the paper's ablation found that feeding it back does not
         # help, and it lets one mistake propagate through the diary.
-        prompt = describer_prompt(fmt_time(t0), fmt_time(t1), len(frames), self.max_words)
+        prompt = describer_prompt(fmt_time(t0), fmt_time(t1), len(frames), self.max_words,
+                                  variant=self.prompt_variant)
         content = [{"type": "text", "text": prompt}] + [image_part(f) for f in frames]
         result = self.client.chat([{"role": "user", "content": content}],
                                   max_tokens=self.max_tokens,

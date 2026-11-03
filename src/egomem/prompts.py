@@ -42,10 +42,37 @@ DESCRIBER_RULES = (
 )
 
 
-def describer_prompt(start: str, end: str, n_frames: int, max_words: int = 60) -> str:
-    return (DESCRIBER_TASK.format(n_frames=n_frames, start=start, end=end)
+# Variant without the list of example objects (experiments/describer_eval, phase 1a):
+# on QAEgo4D the small describer echoed "keys, wallet, phone" into a third of its
+# entries, and wrote negations ("I do not interact with any doors"). Same priorities,
+# no example objects, and an explicit rule against listing what did not happen.
+DESCRIBER_TASK_NO_EXAMPLES = DESCRIBER_TASK.replace(
+    "1. Personal objects I pick up or put down (keys, wallet, phone, glasses, "
+    "bags) and exactly where I leave them.\n",
+    "1. Objects I pick up or put down, and exactly where I leave them.\n")
+assert DESCRIBER_TASK_NO_EXAMPLES != DESCRIBER_TASK, "the example list was not found in DESCRIBER_TASK"
+
+DESCRIBER_RULES_NO_EXAMPLES = (
+    "At most {max_words} words. State only what is visible; if something is "
+    "unclear, say so instead of guessing. Mention only objects and actions that "
+    "appear in these frames: do not list things I did not do or did not see. "
+    "Do not describe the video itself."
+)
+
+PROMPT_VARIANTS: dict[str, tuple[str, str]] = {
+    "default": (DESCRIBER_TASK, DESCRIBER_RULES),
+    "no_examples": (DESCRIBER_TASK_NO_EXAMPLES, DESCRIBER_RULES_NO_EXAMPLES),
+}
+
+
+def describer_prompt(start: str, end: str, n_frames: int, max_words: int = 60,
+                     variant: str = "default") -> str:
+    if variant not in PROMPT_VARIANTS:
+        raise ValueError(f"unknown prompt variant {variant!r}; known: {sorted(PROMPT_VARIANTS)}")
+    task, rules = PROMPT_VARIANTS[variant]
+    return (task.format(n_frames=n_frames, start=start, end=end)
             + DESCRIBER_QUESTIONS
-            + DESCRIBER_RULES.format(max_words=max_words))
+            + rules.format(max_words=max_words))
 
 
 # --- Reader (sees only text) -------------------------------------------------

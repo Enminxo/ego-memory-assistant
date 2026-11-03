@@ -88,12 +88,16 @@ def main() -> None:
     parser.add_argument("--n-frames", type=int, help="override describer.n_frames")
     parser.add_argument("--seed", type=int, help="override describer.seed")
     parser.add_argument("--model", help="override describer.model, e.g. gemma4:e4b")
+    parser.add_argument("--prompt-variant", help="override describer.prompt_variant "
+                        "(see egomem.prompts.PROMPT_VARIANTS)")
     parser.add_argument("--limit", type=int, help="describe at most N new clips")
     args = parser.parse_args()
 
     config = load_config(args.config)
     if args.model is not None:
         config["describer"]["model"] = args.model
+    if args.prompt_variant is not None:
+        config["describer"]["prompt_variant"] = args.prompt_variant
     if args.n_frames is not None:
         config["describer"]["n_frames"] = args.n_frames
     if args.seed is not None:

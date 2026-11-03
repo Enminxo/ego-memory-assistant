@@ -23,6 +23,9 @@ COMPARISONS: tuple[tuple[str, str], ...] = (
     ("g31b", "e4b"),
     ("e4b", "no-memory"),
     ("narration", "no-memory"),
+    # phase 1a (README): the e4b with the prompt without example objects
+    ("g31b", "e4b_noex"),
+    ("e4b_noex", "e4b"),
 )
 
 

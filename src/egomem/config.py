@@ -24,7 +24,8 @@ def make_describer(config: dict) -> VLMDescriber:
     d = config["describer"]
     return VLMDescriber(ChatClient(config["base_url"], d["model"]),
                         max_tokens=d["max_tokens"], max_words=d["max_words"],
-                        temperature=d["temperature"], seed=d.get("seed"))
+                        temperature=d["temperature"], seed=d.get("seed"),
+                        prompt_variant=d.get("prompt_variant", "default"))
 
 
 def make_reader(config: dict) -> Reader:
