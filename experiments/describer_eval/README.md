@@ -187,10 +187,63 @@ e4b_noex 49.4%, g31b 55.4%, narration 59.8%. g31b minus e4b +10.4 [6.2, 14.6], t
 with the Gemma reader (+9.8), so the g31b advantage is not the Gemma reader preferring
 Gemma's text. Narration minus g31b +4.4 [-0.4, 8.8].
 
-**Reading.** Distillation has about 6 to 10 points of B to close between e4b_noex and g31b,
-and the gap is in what gets told, which is what SFT copies best. Beyond g31b the measurable
+**Reading.** Distillation has about 6 to 10 points of B to close between e4b_noex and g31b.
+That the gap is in what gets told rather than what gets seen fits the by-eye check (0 invented
+objects) but is not established: e4b_noex names far fewer of the handled objects (recall -17.4
+points against g31b), which could be either; phase 1b-0 tests it. Beyond g31b the measurable
 room on QAEgo4D is small (narration about 5 points above, interval touching 0 in two of three
 readings), which limits what phase 2 (RL) can show on this benchmark.
+
+## Phase 1b: SFT of the small describer
+
+Pre-registered on 2026-11-04, before any step of this phase was run.
+
+**1b-0. Does e4b see what it does not tell? (minutes, before any training).** For 300
+windows of test_close drawn at random (seed 0) among those where g31b names an object that
+the narration also names and e4b_noex does not, ask a model with the same 8 frames "Is there
+a {object} in these frames?", the answer constrained to yes or no. The object is the phrase
+g31b wrote. Control, in the same window: an object from the same pool of phrases whose label
+is not narrated anywhere in the clip and that neither diary names. Asked to gemma4:e4b (the
+student) and gemma4:31b (reference).
+
+- **Validity:** the probe is valid only if g31b says yes to at least 70% of the present
+  objects and to at most 30% of the controls.
+- **Primary:** e4b yes-rate on present objects minus yes-rate on controls, paired by window,
+  95% interval over clips.
+- **Rule:** lower bound at 30 points or more: e4b mostly sees what it leaves out, and the
+  SFT freezes the vision tower. Interval including 0: e4b does not see them, so a
+  frozen-vision SFT would teach guessing; the SFT then adds LoRA on the vision tower as a
+  second arm. In between: freeze, and run the vision arm as a planned ablation.
+- **Bias:** a control is "absent" because nobody named it, so some are visible; this
+  inflates both models' false alarms alike.
+
+**1b-1. Teacher data.** Scenarios for the 997 QAEgo4D train clips (all in NLQ train, no video
+shared with test_close). 3 full 15 s windows per clip at random (seed 0), 2,991 windows. The
+frames are saved as the exact JPEG bytes sent to Ollama (quality 90). Teacher: gemma4:31b
+with the `no_examples` prompt, the same prompt the student gets, so the student learns the
+teacher's answer to its own input. 10% of the clips (seed 0) are held out for validation
+loss.
+
+**1b-2. Training.** google/gemma-4-E4B-it in bf16 with Hugging Face transformers and peft:
+LoRA rank 16, alpha 32, dropout 0.05, on the attention and MLP projections of the language
+model only; vision tower and projector frozen (unless 1b-0 says otherwise). Loss on the
+answer tokens only. At most 3 epochs, learning rate 1e-4 with cosine decay; the checkpoint
+with the lowest validation loss is kept. A smoke test (one batch forward and backward,
+memory, seconds per step) comes first.
+
+**1b-3. Evaluation.** Base and student both run in Hugging Face bf16 with the same settings
+(no_examples prompt, same 8 frames as JPEG, sampling at temperature 0.2, seed 0, at most 160
+new tokens), so the comparison does not mix in Ollama's 4-bit quantization. Diaries
+`e4b_hf` and `e4b_sft` on the 148 test_close clips.
+
+- **Primary:** B accuracy e4b_sft minus e4b_hf (Gemma reader, option seed 0), paired, 95%
+  interval over clips.
+- **Secondary:** the same with the Qwen reader and option seed 1; A0 precision and recall;
+  echo and negation shares; by-eye check of 50 unsupported e4b_sft mentions.
+- **Kill:** the primary interval includes 0, or B rises while A0 precision falls (the
+  student learned to guess); either way the SFT result is reported as such.
+- **Prediction:** e4b_sft lands between e4b_hf and g31b on B, closing part of the 6-10 point
+  gap.
 
 ## Files
 
