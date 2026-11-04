@@ -1,0 +1,4 @@
+{
+ "about": "Phase 1a by-eye check (pre-registered): the 50 unsupported e4b_noex mentions sampled by object_precision.py in results/a0_e4b_noex_vs_e4b/spot_check_e4b_noex.csv (sample chosen before looking), each judged on the 8 describer frames of its window at 160x120. One rater (Claude), 4 Nov 2026. Same codes as eye_check_a0.json: V = the object is visible; I = not visible in any frame (invented); N = named inside a negation; T = the word is not that object; U = cannot tell. The code is about the object, not the action: several V sentences claim an action that does not happen (e.g. 'I move toward the open refrigerator', 'started washing dishes').",
+ "e4b_noex": "V N U V V V V V V N V V V V N V V T U U N V V N V N V V V N V T V V V T V T V T N V V V V T V V V V"
+}

@@ -147,6 +147,51 @@ g31b minus no memory and g31b minus e4b. If g31b minus e4b includes 0 with this 
 g31b advantage is not established beyond the Gemma reader, and the SFT must report both
 readers.
 
+### Phase 1a results (4 Nov 2026)
+
+All 4,811 e4b_noex windows written; 0 unparsed answers in the 15 reader runs. Ollama does
+not reproduce a diary exactly with the same seed (the first window of a smoke run and of the
+real run differ), so each diary is one draw.
+
+**1a-1: the prompt does not close the gap, so the SFT goes ahead.** Primary g31b minus
+e4b_noex: +7.4 points [3.5, 11.4] (Gemma reader, seed 0). It holds with seed 1 (+9.6
+[5.4, 14.1]) and with the Qwen reader (+6.0 [1.9, 10.0]). The SFT baseline is e4b_noex
+(46.0% against 43.6% for e4b).
+
+| | e4b | e4b_noex | g31b | narration |
+|---|---|---|---|---|
+| windows naming keys | 32.6% | 0.1% | 0.3% | 0.0% |
+| windows naming any example object | 63.2% | 7.6% | 16.7% | 6.4% |
+| windows with a negation | 11.7% | 11.7% | 9.4% | 0.0% |
+| A0 precision | 13.5% | 16.0% | 29.5% | |
+| labels per window | 4.46 | 3.89 | 4.22 | |
+
+The prompt removes the echo (keys from a third of the windows to 4 of 4,811) but not the
+negations, despite the new rule. A0 precision rises by +2.5 [1.6, 3.4] and stays far below
+g31b (g31b minus e4b_noex +13.5 [12.0, 15.1]). Its effect on B is positive with all three
+readings but not established: +2.4 [-1.5, 6.5] (seed 0), +0.4 [-3.7, 4.5] (seed 1), +4.4
+[1.1, 7.9] (Qwen reader).
+
+By-eye check of 50 unsupported e4b_noex mentions (`eye_check_e4b_noex.json`): 0 invented
+objects, 33 real objects the narration does not name, 8 negations, 6 words that are not
+objects, 3 unclear (e4b with the default prompt: 20 invented). So without the echo, the
+remaining A0 gap to g31b is mostly which objects get mentioned (g31b names the ones the
+person handles, which the narration names too), plus negations and actions that do not
+happen (seen in several sentences; A0 does not count actions).
+
+**1a-2: option order.** Every comparison keeps its sign with seed 1. Narration minus g31b
+falls to +4.8 [-0.2, 9.8]: the ceiling gap is small and not robust.
+
+**1a-3: reader from another family.** With qwen3.8:27b: no memory 33.8%, e4b 45.0%,
+e4b_noex 49.4%, g31b 55.4%, narration 59.8%. g31b minus e4b +10.4 [6.2, 14.6], the same as
+with the Gemma reader (+9.8), so the g31b advantage is not the Gemma reader preferring
+Gemma's text. Narration minus g31b +4.4 [-0.4, 8.8].
+
+**Reading.** Distillation has about 6 to 10 points of B to close between e4b_noex and g31b,
+and the gap is in what gets told, which is what SFT copies best. Beyond g31b the measurable
+room on QAEgo4D is small (narration about 5 points above, interval touching 0 in two of three
+readings), which limits what phase 2 (RL) can show on this benchmark.
+
 ## Files
 
 - `config.yaml`: paths and settings (data under `~/data/ego-memory-assistant/describer_eval`).
