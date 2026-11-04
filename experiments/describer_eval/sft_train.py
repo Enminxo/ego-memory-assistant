@@ -27,6 +27,8 @@ from transformers import AutoModelForImageTextToText, AutoProcessor
 MODEL = "google/gemma-4-e4b-it"
 # Language model only: q/k/v/o and the MLP of every decoder layer (k/v exist in 24 of the 42).
 TARGETS = r"model\.language_model\.layers\.\d+\.(self_attn\.(q|k|v|o)_proj|mlp\.(gate|up|down)_proj)"
+# The planned vision arm (README, phase 1b-0): the same projections of the 16 vision encoder layers too.
+VISION_TARGETS = r"model\.vision_tower\.encoder\.layers\.\d+\.(self_attn\.(q|k|v|o)_proj|mlp\.(gate|up|down)_proj)\.linear"
 
 
 def messages(prompt: str, n_images: int, target: str | None) -> list[dict]:
@@ -85,6 +87,10 @@ def main() -> None:
     parser.add_argument("--eval-every", type=int, default=50, help="optimizer steps between validation runs")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--smoke", type=int, help="run this many optimizer steps on a few windows, then stop")
+    parser.add_argument("--no-checkpointing", action="store_true",
+                        help="keep activations instead of recomputing them (faster, more memory)")
+    parser.add_argument("--vision-lora", action="store_true",
+                        help="also put LoRA on the vision encoder (the planned vision arm)")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -97,16 +103,19 @@ def main() -> None:
     t = time.time()
     processor = AutoProcessor.from_pretrained(MODEL)
     model = AutoModelForImageTextToText.from_pretrained(MODEL, dtype=torch.bfloat16, device_map="cuda")
-    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    model.enable_input_require_grads()
+    if not args.no_checkpointing:
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        model.enable_input_require_grads()
+    targets = f"({TARGETS}|{VISION_TARGETS})" if args.vision_lora else TARGETS
     model = get_peft_model(model, LoraConfig(r=args.rank, lora_alpha=args.alpha, lora_dropout=args.dropout,
-                                             target_modules=TARGETS, task_type="CAUSAL_LM"))
+                                             target_modules=targets, task_type="CAUSAL_LM"))
     for p in model.parameters():
         if p.requires_grad:
             p.data = p.data.float()  # LoRA weights in fp32, the frozen model in bf16
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     trainable = {n.split(".lora_")[0] for n, p in model.named_parameters() if p.requires_grad}
-    assert all(".language_model." in n for n in trainable), "LoRA reached a module outside the language model"
+    allowed = (".language_model.", ".vision_tower.") if args.vision_lora else (".language_model.",)
+    assert all(any(a in n for a in allowed) for n in trainable), f"LoRA reached a module outside {allowed}"
     print(f"loaded in {time.time() - t:.0f}s; trainable {n_train / 1e6:.1f}M params in {len(trainable)} modules; "
           f"train {len(rows['train'])} val {len(rows['val'])} windows", flush=True)
 
@@ -131,7 +140,7 @@ def main() -> None:
                 batch = {k: v.to(model.device) for k, v in encode(processor, r, args.data).items()}
                 loss = model(**batch).loss / len(order[i:i + args.accum])
                 loss.backward()
-                losses.append(float(loss) * len(order[i:i + args.accum]))
+                losses.append(float(loss.detach()) * len(order[i:i + args.accum]))
             torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0)
             opt.step()
             sched.step()

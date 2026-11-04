@@ -245,6 +245,38 @@ new tokens), so the comparison does not mix in Ollama's 4-bit quantization. Diar
 - **Prediction:** e4b_sft lands between e4b_hf and g31b on B, closing part of the 6-10 point
   gap.
 
+### Phase 1b-0 results (4 Nov 2026)
+
+2,229 of the 4,811 windows have a candidate; 300 sampled (110 clips), 0 unparsed answers.
+
+| model | yes to the left-out object | yes to the control | difference |
+|---|---|---|---|
+| g31b (reference) | 91.3% | 9.3% | +82.0 [77.0, 86.7] |
+| e4b | 21.3% | 5.0% | +16.3 [10.8, 21.8] |
+
+The probe is valid (g31b within 70%/30%). By the rule, e4b falls in between (above 0, below
+30): the SFT freezes the vision tower and the vision arm runs as a planned ablation.
+
+**Follow-up, not pre-registered** (`probe_selfcheck.py`): in 287 of the same windows, e4b was
+also asked about an object it had written itself in that entry (real objects: 0 of 50
+invented in the by-eye check). It says yes to only 26.8% of them; own minus left out +6.3
+[0.3, 12.1]; left out minus control +15.7 [10.2, 21.1]. So in this yes/no format e4b mostly
+answers no, also to objects it named; its 21% does not show that it fails to see the
+left-out objects, and the probe cannot separate "does not tell" from "does not see" for
+e4b. The decision above stands; the vision arm will answer it. Not tried: other question
+formats (free answer, or yes/no token probabilities instead of a forced choice).
+
+### Phase 1b run settings (fixed before training)
+
+Measured with the GPU free: about 6 s per training window with gradient checkpointing and
+26 GB, about 4.9 s without and 53 GB; the run goes without checkpointing, windows per
+optimizer step 8, validation every 100 steps. Hugging Face diaries: batches of 4, the model's
+own top-k/top-p with temperature 0.2, about 2.3 s per window. Secondary comparison added
+before any Hugging Face diary is scored: e4b_hf minus e4b_noex on B (the same prompt, bf16
+in Hugging Face against 4-bit in Ollama), because the backends differ (in the first window
+of the red-cup clip, the bf16 base wrote no invented phone). The vision arm runs after the
+main arm, with the same settings plus LoRA on the vision encoder.
+
 ## Files
 
 - `config.yaml`: paths and settings (data under `~/data/ego-memory-assistant/describer_eval`).

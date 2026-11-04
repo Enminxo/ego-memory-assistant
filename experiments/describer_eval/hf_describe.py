@@ -24,6 +24,7 @@ from PIL import Image
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # sft_train, also under python -I
 from egomem.describer import trim_incomplete_sentence  # noqa: E402  (numpy and PIL only)
 
 from sft_train import MODEL, messages  # noqa: E402
@@ -48,8 +49,9 @@ def main() -> None:
         path = args.data_dir / "memories" / clip / args.tag / "memory.jsonl"
         if path.exists():
             by_clip[clip] = {json.loads(l)["index"] for l in path.read_text().splitlines() if l.strip()}
-    todo = [r for r in rows if r["index"] not in by_clip[r["clip"]]][: args.limit]
-    print(f"{len(rows) - len(todo)} done, {len(todo)} to write", flush=True)
+    pending = [r for r in rows if r["index"] not in by_clip[r["clip"]]]
+    todo = pending[: args.limit]
+    print(f"{len(rows) - len(pending)} done, {len(pending)} pending, writing {len(todo)}", flush=True)
 
     processor = AutoProcessor.from_pretrained(MODEL)
     processor.tokenizer.padding_side = "left"

@@ -26,6 +26,10 @@ COMPARISONS: tuple[tuple[str, str], ...] = (
     # phase 1a (README): the e4b with the prompt without example objects
     ("g31b", "e4b_noex"),
     ("e4b_noex", "e4b"),
+    # phase 1b (README): the SFT student against its base, both in Hugging Face bf16
+    ("e4b_sft", "e4b_hf"),
+    ("g31b", "e4b_sft"),
+    ("e4b_hf", "e4b_noex"),
 )
 
 
