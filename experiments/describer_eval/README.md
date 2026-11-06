@@ -277,6 +277,52 @@ in Hugging Face against 4-bit in Ollama), because the backends differ (in the fi
 of the red-cup clip, the bf16 base wrote no invented phone). The vision arm runs after the
 main arm, with the same settings plus LoRA on the vision encoder.
 
+### Phase 1b results, main arm (5-6 Nov 2026)
+
+Teacher data: 2,991 windows (2,691 train, 300 validation). Training: validation loss 1.80 at
+step 0, lowest 0.735 at step 600 of 1,011 (about 1.8 epochs; that checkpoint is the one
+used), then 0.75-0.77 while the training loss kept falling to 0.40: the third epoch overfits.
+5.5 s per window, 53 GB. All 4,811 windows written by both Hugging Face describers; 0
+unparsed answers.
+
+**Primary: not established.** B accuracy e4b_sft minus e4b_hf: +3.0 points [-0.9, 7.1]
+(Gemma reader, seed 0). It keeps its sign with seed 1 (+1.0 [-3.0, 5.5]) and with the Qwen
+reader (+2.0 [-1.7, 5.5]), but every interval includes 0. By the kill rule the SFT gain on B
+is reported as not established. The effect, if real, is smaller than what 500 questions can
+resolve (interval half-width about 4 points).
+
+| | e4b_noex (Ollama 4-bit) | e4b_hf (bf16 base) | e4b_sft | g31b |
+|---|---|---|---|---|
+| B, Gemma seed 0 | 46.0% | 47.4% | 50.4% | 53.4% |
+| B, Gemma seed 1 | 45.0% | 48.8% | 49.8% | 54.6% |
+| B, Qwen seed 0 | 49.4% | 50.2% | 52.2% | 55.4% |
+| A0 precision | 16.0% | 23.4% | 27.5% | 29.5% |
+| A0 recall | 17.6% | 27.1% | 27.1% | 35.0% |
+| labels per window | 3.89 | 4.12 | 3.51 | 4.22 |
+| windows with a negation | 11.7% | 0.1% | 6.6% | 9.4% |
+
+- **A0:** precision +4.1 [2.9, 5.2], recall +0.0 [-1.1, 1.1]. The student names fewer
+  objects per window, mostly dropping unnarrated ones, but it does not name more of the
+  handled objects the narration names: recall stays 7.9 points [6.8, 9.0] below g31b.
+- **The trap check (2x2):** accuracy up (not established) with precision up, the "learned"
+  cell, not the "learned to guess" one. By-eye check of 50 unsupported e4b_sft mentions
+  (`eye_check_e4b_sft.json`): 1 invented, 38 real, 2 negations, 4 words that are not
+  objects, 5 unclear.
+- **What copying carried over:** the teacher's style, nearly word for word in places, and
+  also its negations (0.1% of the base's windows, 6.6% of the student's, 9.4% of the
+  teacher's).
+- **Backends (secondary):** e4b_hf minus e4b_noex +1.4 [-2.5, 5.0] on B (not established),
+  but the bf16 base differs a lot elsewhere: A0 precision 23.4% against 16.0%, and almost no
+  negations (0.1% against 11.7%). Quantization, image preprocessing and sampling defaults all
+  differ between the two backends, so this does not isolate the 4-bit quantization.
+
+**Reading.** The SFT moved the student toward the teacher on how it writes (style, fewer
+unsupported objects, the teacher's habits including negations) and, by point estimate, on
+B (it closes about half of the 5-6 point gap between e4b_hf and g31b), but the B gain is not
+established on 500 questions. It did not raise recall of the handled objects, which is what
+a perception limit would predict and what the planned vision arm tests. Not done: the vision
+arm, a second seed of the training or of the diaries, and a larger question set.
+
 ## Files
 
 - `config.yaml`: paths and settings (data under `~/data/ego-memory-assistant/describer_eval`).

@@ -1,0 +1,4 @@
+{
+ "about": "Phase 1b by-eye check (pre-registered): the 50 unsupported e4b_sft mentions sampled by object_precision.py in results/a0_e4b_sft_vs_e4b_hf/spot_check_e4b_sft.csv (sample chosen before looking), each judged on the 8 describer frames of its window at 160x120. One rater (Claude), 6 Nov 2026. Same codes as eye_check_a0.json: V visible, I invented, N negation, T the word is not that object, U unclear. The only I: 'I used a power drill to drill a hole in a metal plate' (no drill or plate in the frames).",
+ "e4b_sft": "V V V V V N U V T V V V T V V V V V U V V V T V V V V V V V U V N V V V V V V U V V V U V I V T V V"
+}
