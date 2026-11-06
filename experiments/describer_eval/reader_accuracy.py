@@ -30,6 +30,11 @@ COMPARISONS: tuple[tuple[str, str], ...] = (
     ("e4b_sft", "e4b_hf"),
     ("g31b", "e4b_sft"),
     ("e4b_hf", "e4b_noex"),
+    # phase 1b, second round: the vision arm and the filtered teacher
+    ("e4b_sft_vis", "e4b_hf"),
+    ("e4b_sft_vis", "e4b_sft"),
+    ("e4b_sft_noneg", "e4b_hf"),
+    ("e4b_sft_noneg", "e4b_sft"),
 )
 
 

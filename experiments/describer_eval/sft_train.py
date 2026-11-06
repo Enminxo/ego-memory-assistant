@@ -91,6 +91,8 @@ def main() -> None:
                         help="keep activations instead of recomputing them (faster, more memory)")
     parser.add_argument("--vision-lora", action="store_true",
                         help="also put LoRA on the vision encoder (the planned vision arm)")
+    parser.add_argument("--patience", type=int,
+                        help="stop after this many validations without a new lowest loss")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -126,7 +128,7 @@ def main() -> None:
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: min(1.0, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(s, total_steps) / total_steps)))
     log = (args.out / "log.jsonl").open("a")
-    best = float("inf")
+    best, stale = float("inf"), 0
     v0 = evaluate(model, processor, rows["val"], args.data)
     print(f"step 0 val loss {v0:.4f}", flush=True)
     log.write(json.dumps({"step": 0, "val_loss": v0}) + "\n")
@@ -152,11 +154,16 @@ def main() -> None:
             if step % args.eval_every == 0 or step == total_steps:
                 rec["val_loss"] = evaluate(model, processor, rows["val"], args.data)
                 if rec["val_loss"] < best:
-                    best = rec["val_loss"]
+                    best, stale = rec["val_loss"], 0
                     model.save_pretrained(args.out / "best")
+                else:
+                    stale += 1
             print(json.dumps(rec), flush=True)
             log.write(json.dumps(rec) + "\n")
             log.flush()
+            if args.patience is not None and stale >= args.patience:
+                print(f"early stop at step {step}: {stale} validations without improvement", flush=True)
+                step = total_steps
             if step >= total_steps:
                 break
     print(f"done: best val loss {best:.4f}", flush=True)

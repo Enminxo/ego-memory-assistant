@@ -323,6 +323,35 @@ established on 500 questions. It did not raise recall of the handled objects, wh
 a perception limit would predict and what the planned vision arm tests. Not done: the vision
 arm, a second seed of the training or of the diaries, and a larger question set.
 
+## Phase 1b, second round: the vision arm and the filtered teacher
+
+Pre-registered on 2026-11-06, before either arm was trained. Both use the main arm's settings
+(LoRA rank 16, the same data split, 3-epoch cosine schedule, 8 windows per step, validation
+every 100 steps, no gradient checkpointing) plus early stopping after 2 validations without
+a new lowest loss; under that rule the main arm would have kept the same checkpoint (step
+600) and stopped at step 800. Diaries in Hugging Face bf16 as for e4b_hf and e4b_sft, then
+the same evaluation (B with the Gemma reader seeds 0 and 1 and the Qwen reader, A0, echo,
+by-eye check of 50 unsupported mentions).
+
+**1b-V. Vision arm** (`e4b_sft_vis`): the unfiltered teacher data, LoRA also on the 16 vision
+encoder layers (q/k/v/o and MLP). It asks whether the student fails to name the handled
+objects because of what it sees.
+
+- **Primary:** A0 recall e4b_sft_vis minus e4b_sft, 95% interval over clips.
+- **Rule:** interval above 0: tuning the encoder lets the student name more of the handled
+  objects, so part of the gap was perception within reach of LoRA. Interval including 0:
+  not shown; the gap is either perception beyond a rank-16 adapter or not perception.
+- **Secondary:** B e4b_sft_vis minus e4b_hf and minus e4b_sft; precision; negations.
+
+**1b-F. Filtered teacher** (`e4b_sft_noneg`): the main arm (vision frozen) trained on the
+teacher data with every negation sentence removed (`sft_filter.py`, same regex as
+`prompt_echo.py`: 348 of 2,991 entries changed, 1 dropped).
+
+- **Primary:** B e4b_sft_noneg minus e4b_hf (Gemma reader, seed 0), with the main arm's kill
+  rule: an interval including 0 means the gain is not established.
+- **Secondary:** windows with a negation (prediction: near the base's 0.1%, against 6.6% for
+  e4b_sft); B e4b_sft_noneg minus e4b_sft; A0.
+
 ## Files
 
 - `config.yaml`: paths and settings (data under `~/data/ego-memory-assistant/describer_eval`).
