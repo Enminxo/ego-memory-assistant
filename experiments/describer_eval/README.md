@@ -297,7 +297,7 @@ resolve (interval half-width about 4 points).
 | B, Gemma seed 1 | 45.0% | 48.8% | 49.8% | 54.6% |
 | B, Qwen seed 0 | 49.4% | 50.2% | 52.2% | 55.4% |
 | A0 precision | 16.0% | 23.4% | 27.5% | 29.5% |
-| A0 recall | 17.6% | 27.1% | 27.1% | 35.0% |
+| A0 recall | 17.5% | 27.1% | 27.1% | 35.0% |
 | labels per window | 3.89 | 4.12 | 3.51 | 4.22 |
 | windows with a negation | 11.7% | 0.1% | 6.6% | 9.4% |
 
