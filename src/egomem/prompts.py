@@ -5,11 +5,11 @@ the describer prompt has a task description, detailed instructions and a
 question template; the reader gets the whole diary followed by the question.
 
 What changes with respect to the paper is what the describer is told to
-prioritise. The target users (mild cognitive impairment, early Alzheimer's)
-mostly forget where they left personal objects, whether they took their
-medication, and whether they switched off an appliance or closed a door, so
-those come first. Changing these priorities is the cheapest experiment in the
-whole project and the first thing worth ablating.
+prioritise. The everyday questions this prototype is built around are where
+personal objects were left, whether medication was taken, and whether an
+appliance was switched off or a door closed, so those come first. Changing
+these priorities is the cheapest experiment in the whole project and the first
+thing worth ablating.
 """
 
 from __future__ import annotations
