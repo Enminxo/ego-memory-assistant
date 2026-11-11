@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" alt="Remembering for You: round glasses with a clock running backwards in one lens" width="220"></p>
+
 # Episodic memory assistant (prototype)
 
 Prototype of an assistant that records what a person does with a wearable camera and answers questions about their recent past: "where did I leave my keys?", "did I turn off the stove?". It is aimed at mild cognitive impairment and early Alzheimer's disease.
