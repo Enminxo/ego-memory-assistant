@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/logo.png" alt="Remembering for You: round glasses with a clock running backwards in one lens" width="220"></p>
+<p align="center"><img src="assets/logo.png" alt="Remembering for You: round glasses with a clock running backwards in one lens" width="180"></p>
 
 # Episodic memory assistant (prototype)
 
