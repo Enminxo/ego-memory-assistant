@@ -2,7 +2,7 @@
 
 # Episodic memory assistant (prototype)
 
-Prototype of an assistant that records what a person does with a wearable camera and answers questions about their recent past: "where did I leave my keys?", "did I turn off the stove?". It is aimed at mild cognitive impairment and early Alzheimer's disease.
+Prototype of an assistant that records what a person does with a wearable camera and answers questions about their recent past: "where did I leave my keys?", "did I turn off the stove?".
 
 ![The demo page: a recording from the Neon glasses, its diary, and a question answered with the moment it came from](assets/app.jpg)
 
@@ -50,7 +50,7 @@ The describer is the slow part, and its time grows with the image size, because 
 
 ## Demo scenes from Ego4D
 
-Four 8-minute clips from [Ego4D](https://ego4d-data.org) with [QAEgo4D](https://github.com/lbaermann/qaego4d) questions, one scene per need: stove, keys, medication and wallet (`scripts/demo_scenes.yaml`). **Both datasets require signing their licenses**, so the scenes are not in the repository: the script below builds them from your own copies.
+Four 8-minute clips from [Ego4D](https://ego4d-data.org) with [QAEgo4D](https://github.com/lbaermann/qaego4d) questions, one scene per kind of question: stove, keys, medication and wallet (`scripts/demo_scenes.yaml`). **Both datasets require signing their licenses**, so the scenes are not in the repository: the script below builds them from your own copies.
 
 ```bash
 ./scripts/make_demo_scenes.sh           # cuts the videos and writes scenarios/*.json
@@ -148,6 +148,15 @@ The video is read over the Companion app's WebSocket (port 8686), the path its M
 - **`src/egomem/neon_stream.py`**: Neon's scene camera, live, over the Companion app's WebSocket instead of UDP RTSP, with only `websockets` and PyAV. Useful whenever the plain RTSP stream loses keyframes on your network.
 - **`src/egomem/phone_relay.py`**: run your own processing on the Companion phone in Termux and send only what you need, with photos queued through network drops. One file, standard library plus Termux's ffmpeg.
 - **The describer, the reader and the `--no-memory` control**: a small text-memory baseline for episodic memory questions on any video, with any OpenAI-compatible model.
+
+## Possible applications
+
+The common thread is everyday questions about the recent past: where something was left, whether a step was done, what happened while attention was elsewhere. Some places where a memory like this could be useful:
+
+- **Everyday recall.** Finding misplaced objects, or checking whether the door was closed or the stove switched off.
+- **Routines and procedures.** Confirming which steps of a task were done, at home or at work.
+- **Personal logging.** A searchable text record of a day that does not need the video to be kept.
+- **Memory support.** The motivation behind the project: these questions weigh most on people whose memory is failing. This is a horizon, not a claim. The prototype has not been tested with patients or validated clinically, it is not a medical device, and as the results above show it still makes mistakes, including writing down things that did not happen.
 
 ## Layout
 
