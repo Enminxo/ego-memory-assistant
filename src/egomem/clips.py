@@ -24,6 +24,10 @@ class Clip:
     t1: float
     times: list[float] = field(default_factory=list)
     frames: list[np.ndarray] = field(default_factory=list)
+    # Unix seconds of the clip's start and end, for live clips only: the face
+    # greeting reports who it saw and when, and those sightings are matched on them.
+    wall_t0: float | None = None
+    wall_t1: float | None = None
 
 
 def frame_offsets(clip_sec: float, n_frames: int) -> list[float]:

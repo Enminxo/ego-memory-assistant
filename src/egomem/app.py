@@ -55,6 +55,11 @@ class LiveStart(BaseModel):
     via: str = "phone"  # or "direct": the whole video over the Companion's WebSocket
 
 
+class Sighting(BaseModel):
+    name: str
+    seen: float  # unix time of the picture the face was recognized in
+
+
 def entry_at(entries: list[MemoryEntry], t: float) -> MemoryEntry | None:
     """The entry whose clip contains second t."""
     for entry in entries:
@@ -208,7 +213,8 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
         store = EvidenceStore(run_dir(scenario_id) / "frames")
         return {"tag": tag,
                 "entries": [{"index": e.index, "t0": e.t0, "t1": e.t1, "text": e.text,
-                             "latency_s": e.latency_s, "n_frames": store.count(e.index)}
+                             "latency_s": e.latency_s, "n_frames": store.count(e.index),
+                             "people": list(e.people)}
                             for e in load_memory(scenario_id).entries()]}
 
     @app.get("/api/scenarios/{scenario_id}/video")
@@ -258,6 +264,15 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     def live_stop() -> dict:
         live.stop()
         return live.status()
+
+    @app.post("/api/live/people")
+    def live_people(sighting: Sighting) -> dict:
+        """The face greeting (facegreet.py) recognized someone: their name goes into the
+        diary entry of the clip the sighting falls in. Ignored when no session is on."""
+        name = sighting.name.strip()
+        if not name:
+            raise HTTPException(400, "give the name of the person recognized")
+        return {"kept": live.note_sighting(name, sighting.seen)}
 
     @app.get("/api/live")
     def live_status() -> dict:

@@ -205,3 +205,12 @@ def test_the_relay_scales_the_photos_only_when_the_app_asks_for_a_width(tmp_path
     finally:
         relay_server.shutdown()
         relay.close()
+
+
+def test_a_clip_from_the_phone_knows_when_it_happened_on_the_wall_clock():
+    """From when its photos were taken: half a photo's share before the first and after the last."""
+    source = PhoneSource(None, clip_sec=15, n_frames=2, log=quiet)
+    source.add_photo(source.token, 0, 0, 1000.0 + 3.75, 0, jpeg(10))   # the middles of 0-7.5 s
+    source.add_photo(source.token, 0, 1, 1000.0 + 11.25, 0, jpeg(20))  # and of 7.5-15 s
+    clip = source.next_clip(timeout=0)
+    assert (clip.wall_t0, clip.wall_t1) == (1000.0, 1015.0)

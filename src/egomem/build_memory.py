@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from egomem.clips import Clip, clip_bounds, iter_clips
@@ -25,16 +26,20 @@ from egomem.sources import VideoFileSource
 
 
 def describe_clip(describer: Describer, clip: Clip, memory: TextualMemory,
-                  evidence: EvidenceStore | None) -> MemoryEntry:
+                  evidence: EvidenceStore | None,
+                  people: Callable[[Clip], tuple[str, ...]] | None = None) -> MemoryEntry:
     """Describe one clip and append it to the diary, with its frames as evidence.
 
     Shared by the offline build and the live session (live.py), so a diary
     written from a file and one written from the glasses are the same thing.
+    `people(clip)` gives the names recognized by face during the clip; it is
+    asked after the describer, by when every sighting of the clip has arrived.
     """
     result = describer.describe(clip.frames, clip.t0, clip.t1)
+    names = people(clip) if people is not None else ()
     entry = MemoryEntry(index=clip.index, t0=round(clip.t0, 2), t1=round(clip.t1, 2),
                         text=result.text, latency_s=round(result.latency_s, 2),
-                        n_frames=len(clip.frames))
+                        n_frames=len(clip.frames), people=tuple(names))
     # Frames first: the app reads the diary while it grows, and an entry must
     # not show up before the frames it was written from.
     if evidence is not None:

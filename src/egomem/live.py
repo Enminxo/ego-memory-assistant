@@ -109,6 +109,9 @@ class LiveSession:
         self.written: list[MemoryEntry] = []
         self.error: BaseException | None = None
         self._start = 0.0
+        self._wall_start = 0.0  # time.time() at self._start, to place clips on the wall clock
+        # people(wall_t0, wall_t1): names recognized by face in that span (LiveRunner)
+        self.people: Callable[[float, float], tuple[str, ...]] | None = None
 
     def sample_clip(self, index: int) -> Clip:
         """The frames of clip `index`, each taken at its instant on the session clock."""
@@ -120,7 +123,20 @@ class LiveSession:
             if wait > 0:
                 self.sleep(wait)
             frames.append(self.source.latest_rgb())
-        return Clip(index=index, t0=t0, t1=t0 + self.clip_sec, times=times, frames=frames)
+        return Clip(index=index, t0=t0, t1=t0 + self.clip_sec, times=times, frames=frames,
+                    wall_t0=self._wall_start + t0, wall_t1=self._wall_start + t0 + self.clip_sec)
+
+    def names_in(self, clip: Clip) -> tuple[str, ...]:
+        """Who was recognized by face during the clip, if anyone reports it.
+
+        Asked once the clip is described. A sighting from the clip's last second,
+        after its last photo, is in by then only because describing takes longer
+        (7 s and more for the large describer at 720 px) than the greeting takes to
+        report it (about 0.3 s on 2026-10-27).
+        """
+        if self.people is None or clip.wall_t0 is None or clip.wall_t1 is None:
+            return ()
+        return self.people(clip.wall_t0, clip.wall_t1)
 
     def _sample(self, n_clips: int | None) -> None:
         index = 0
@@ -158,16 +174,19 @@ class LiveSession:
     def run(self, n_clips: int | None = None) -> list[MemoryEntry]:
         """Sample and describe until n_clips are done or stop() is called."""
         self._start = self.clock()
+        self._wall_start = time.time()
         sampler = threading.Thread(target=self._sample, args=(n_clips,), name="sampler",
                                    daemon=True)
         sampler.start()
         try:
             while (clip := self.clips.get()) is not None:
-                entry = describe_clip(self.describer, clip, self.memory, self.evidence)
+                entry = describe_clip(self.describer, clip, self.memory, self.evidence,
+                                      people=self.names_in)
                 self.written.append(entry)
                 late = " [longer than the clip]" if entry.latency_s > self.clip_sec else ""
+                seen = f" [seen: {', '.join(entry.people)}]" if entry.people else ""
                 self.log(f"[clip {entry.index:03d} | {fmt_time(entry.t0)}-{fmt_time(entry.t1)}"
-                         f" | {entry.latency_s:.1f}s{late}] {entry.text}")
+                         f" | {entry.latency_s:.1f}s{late}] {entry.text}{seen}")
         finally:
             self.stop_event.set()
             sampler.join(timeout=self.clip_sec)
@@ -339,6 +358,9 @@ class LiveRunner:
         # "id": ..., "error": ...}, or None when the session does not record
         self.recording: dict | None = None
         self._recorder: Recorder | None = None  # set while the phone is recording
+        # (unix time, name) of each face the greeting recognized during this session
+        self.sightings: list[tuple[float, str]] = []
+        self._sight_lock = threading.Lock()
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._rec_lock = threading.Lock()
@@ -369,6 +391,8 @@ class LiveRunner:
             self.address, self.via, self.error = address, via, None
             self.source, self.session, self.scenario = None, None, None
             self.recording = None
+            with self._sight_lock:
+                self.sightings = []
             self.state = "connecting"
             self._stop.clear()
             self._thread = threading.Thread(target=self._run, name="live", daemon=True)
@@ -394,6 +418,7 @@ class LiveRunner:
                 self.start_recording()
             self.state = "running"
             self.session.log = self.log
+            self.session.people = self.people_between
             self.session.run()
         except Exception as exc:  # shown on the page
             self.error = str(exc) or repr(exc)
@@ -412,6 +437,28 @@ class LiveRunner:
             self.session.stop()
         # the recording ends now, not after the clips already taken are described
         self.stop_recording()
+
+    def note_sighting(self, name: str, seen: float) -> bool:
+        """The face greeting recognized `name` at unix time `seen`.
+
+        Kept only while a session is on: a sighting belongs to the diary of the
+        session it happened in. Returns whether it was kept.
+        """
+        if self.state not in ("connecting", "running"):
+            return False
+        with self._sight_lock:
+            self.sightings.append((seen, name))
+        return True
+
+    def people_between(self, wall_t0: float, wall_t1: float) -> tuple[str, ...]:
+        """Names recognized between two unix times, each once, in order of first sighting."""
+        with self._sight_lock:
+            sightings = sorted(self.sightings)
+        names: list[str] = []
+        for seen, name in sightings:
+            if wall_t0 <= seen < wall_t1 and name not in names:
+                names.append(name)
+        return tuple(names)
 
     def start_recording(self) -> None:
         """Ask the phone to record this session; a refusal is shown, never raised."""

@@ -97,7 +97,8 @@ class PhoneSource:
         self.pending = 0  # photos still waiting on the phone, as of the last one
         self.photos_received = 0
         self.clips: queue.Queue[Clip] = queue.Queue()
-        self._building: tuple[int, dict[int, np.ndarray]] | None = None
+        # the clip being put together: its number, and (photo, time taken) per slot
+        self._building: tuple[int, dict[int, tuple[np.ndarray, float]]] | None = None
         self._rgb: np.ndarray | None = None
         self._jpeg: tuple[int, int, bytes] | None = None  # (photo number, width, bytes)
         self._taken = 0.0
@@ -130,14 +131,21 @@ class PhoneSource:
                              f"{self.n_frames} photos arrived from the phone")
                 building = (clip, {})
                 self._building = building
-            building[1][slot] = rgb  # a photo sent twice (its answer was lost) just replaces itself
+            building[1][slot] = (rgb, taken)  # a photo sent twice just replaces itself
             if len(building[1]) < self.n_frames:
                 return
             self._building = None
         t0 = clip * self.clip_sec
+        # Each photo stands for its share of the clip, centred on when it was taken
+        # (phone_relay.DiarySession), so the clip spans half a share beyond its first
+        # and last photo, on the phone's clock (2 ms from the DGX's on 2026-10-27).
+        taken_times = [building[1][s][1] for s in range(self.n_frames)]
+        half_share = self.clip_sec / self.n_frames / 2
         self.clips.put(Clip(index=clip, t0=t0, t1=t0 + self.clip_sec,
                             times=[t0 + off for off in frame_offsets(self.clip_sec, self.n_frames)],
-                            frames=[building[1][s] for s in range(self.n_frames)]))
+                            frames=[building[1][s][0] for s in range(self.n_frames)],
+                            wall_t0=min(taken_times) - half_share,
+                            wall_t1=max(taken_times) + half_share))
 
     def next_clip(self, timeout: float) -> Clip | None:
         """The next whole clip, or None if none arrives within `timeout` seconds."""
