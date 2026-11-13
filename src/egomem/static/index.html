@@ -534,6 +534,15 @@ function setFeed() {
   $("feed").src = on ? `/api/live/stream.mjpg?t=${Date.now()}` : "data:,";
 }
 
+// The phone's own recording of the session (live.record in configs/demo.yaml).
+function recordingNote() {
+  const rec = live.recording;
+  if (!rec) return null;
+  if (rec.state === "recording") return `<b class="dot">●</b> recording on the phone`;
+  if (rec.state === "failed") return `<span class="warn">not recording on the phone: ${esc(rec.error || "no answer")}</span>`;
+  return null;
+}
+
 function renderLiveNote() {
   if (!current || !current.live) return;
   let html;
@@ -548,6 +557,7 @@ function renderLiveNote() {
     if (live.pending > 1) parts.push(`<span class="warn">${live.pending} waiting on the phone</span>`);
     parts.push(`${live.clips_written} entries`);
     if (live.dropped) parts.push(`<span class="warn">${live.dropped} clips dropped</span>`);
+    if (recordingNote()) parts.push(recordingNote());
     html = `<span>${parts.join(" · ")}</span>` + (stopping
       ? '<span class="muted">stopping: describing the clips already taken…</span>'
       : '<button class="chip" id="stopbtn">Stop</button>');
@@ -561,6 +571,7 @@ function renderLiveNote() {
                                 : `${live.lag_s.toFixed(1)} s behind`);
     parts.push(`${live.clips_written} entries`);
     if (live.dropped) parts.push(`<span class="warn">${live.dropped} clips dropped</span>`);
+    if (recordingNote()) parts.push(recordingNote());
     html = `<span>${parts.join(" · ")}</span>` + (stopping
       ? '<span class="muted">stopping: describing the clips already taken…</span>'
       : '<button class="chip" id="stopbtn">Stop</button>');

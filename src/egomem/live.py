@@ -24,6 +24,12 @@ app's "Go live" button (LiveRunner) or from the terminal:
     egomem-live --neon 192.168.43.1 --probe     # check the connection only
     egomem-live --neon 192.168.43.1             # phone IP from the Companion app
     egomem-live --minutes 10 --record           # search the network, also record on the phone
+
+With `live.record: true` in the config, a session from the page also starts
+the Companion app's own recording on the phone (CompanionRecorder) and stops
+and saves it on Stop: one full recording per session, to look into what the
+diary missed. A recording that fails to start or stop is reported on the page
+and never stops the diary.
 """
 
 from __future__ import annotations
@@ -34,6 +40,8 @@ import queue
 import statistics
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -241,6 +249,51 @@ def run_live(config: dict, source: NeonLiveSource, scene_id: str, title: str,
     return session
 
 
+class RecordingError(Exception):
+    """The phone did not start or save its recording; the message says why."""
+
+
+class Recorder(Protocol):
+    def start(self) -> str: ...
+    def stop_and_save(self) -> None: ...
+
+
+class CompanionRecorder:
+    """The Companion app's own recording on the phone, over its HTTP API.
+
+    The endpoints of pupil_labs.realtime_api (Device.recording_start and
+    recording_stop_and_save), called with the standard library so that a
+    session through the phone relay needs nothing of the neon extra. Companion
+    refuses with a message, e.g. "Recording already running" or low storage.
+    """
+
+    def __init__(self, address: str, port: int = DEFAULT_PORT, timeout: float = 5.0) -> None:
+        self.base = f"http://{address}:{port}/api"
+        self.timeout = timeout
+
+    def _post(self, path: str) -> dict:
+        request = urllib.request.Request(self.base + path, data=b"", method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            try:
+                message = json.load(exc).get("message")
+            except ValueError:
+                message = None
+            raise RecordingError(message or f"the Companion app answered {exc.code}") from None
+        except (urllib.error.URLError, OSError) as exc:
+            reason = getattr(exc, "reason", exc)
+            raise RecordingError(f"no answer from the Companion app at {self.base}: {reason}") from None
+
+    def start(self) -> str:
+        """Start recording; returns the recording's id."""
+        return str(self._post("/recording:start")["result"]["id"])
+
+    def stop_and_save(self) -> None:
+        self._post("/recording:stop_and_save")
+
+
 class LiveRunner:
     """One live session at a time, started and stopped from the web page.
 
@@ -252,19 +305,22 @@ class LiveRunner:
     `open_source(address)` connects to the glasses directly (NeonLiveSource in
     the app, a fake in the tests), `open_phone(address)` through the relay on
     the phone (phone.open_phone_source), and `make_describer()` gives the
-    describer.
+    describer. `open_recorder(address)`, when given, records on the phone for
+    as long as each session lasts (CompanionRecorder in the app).
     """
 
     def __init__(self, config: dict, tag: str, root: Path,
                  open_source: Callable[[str], StreamSource],
                  make_describer: Callable[[], Describer],
                  log: Callable[[str], None] = print, first_frame_sec: float = 30.0,
-                 open_phone: Callable[[str], StreamSource] | None = None) -> None:
+                 open_phone: Callable[[str], StreamSource] | None = None,
+                 open_recorder: Callable[[str], Recorder] | None = None) -> None:
         self.config = config
         self.tag = tag
         self.root = Path(root)
         self.open_source = open_source
         self.open_phone = open_phone
+        self.open_recorder = open_recorder
         self.make_describer = make_describer
         self.log = log
         # Long enough for the stream to reconnect once: after a while idle, the
@@ -279,8 +335,13 @@ class LiveRunner:
         self.source: StreamSource | None = None
         self.session: LiveSession | None = None
         self.scenario: Scenario | None = None
+        # the phone's recording of this session: {"state": "recording" | "saved" | "failed",
+        # "id": ..., "error": ...}, or None when the session does not record
+        self.recording: dict | None = None
+        self._recorder: Recorder | None = None  # set while the phone is recording
         self._stop = threading.Event()
         self._lock = threading.Lock()
+        self._rec_lock = threading.Lock()
         self._thread: threading.Thread | None = None
 
     def _new_id(self, now: datetime) -> str:
@@ -307,6 +368,7 @@ class LiveRunner:
             self.title = title or f"Live {now:%d %b %H:%M}"
             self.address, self.via, self.error = address, via, None
             self.source, self.session, self.scenario = None, None, None
+            self.recording = None
             self.state = "connecting"
             self._stop.clear()
             self._thread = threading.Thread(target=self._run, name="live", daemon=True)
@@ -328,12 +390,15 @@ class LiveRunner:
                 self.make_describer(), self.root, self.tag)
             if self._stop.is_set():  # stopped while the scenario was being written
                 self.session.stop()
+            else:
+                self.start_recording()
             self.state = "running"
             self.session.log = self.log
             self.session.run()
         except Exception as exc:  # shown on the page
             self.error = str(exc) or repr(exc)
         finally:
+            self.stop_recording()
             self.mark_ended()
             if self.source is not None:
                 self.source.close()
@@ -345,6 +410,40 @@ class LiveRunner:
         self._stop.set()
         if self.session is not None:
             self.session.stop()
+        # the recording ends now, not after the clips already taken are described
+        self.stop_recording()
+
+    def start_recording(self) -> None:
+        """Ask the phone to record this session; a refusal is shown, never raised."""
+        if self.open_recorder is None:
+            return
+        recorder = self.open_recorder(self.address)
+        try:
+            recording_id = recorder.start()
+        except Exception as exc:  # whatever the phone answers, the diary goes on
+            self.recording = {"state": "failed", "id": None, "error": str(exc) or repr(exc)}
+            self.log(f"{self.id}: not recording on the phone: {exc}")
+            return
+        with self._rec_lock:
+            self._recorder = recorder
+            self.recording = {"state": "recording", "id": recording_id, "error": None}
+        self.log(f"{self.id}: recording on the phone ({recording_id})")
+
+    def stop_recording(self) -> None:
+        """Ask the phone to stop and save the recording, once, if there is one."""
+        with self._rec_lock:
+            recorder, self._recorder = self._recorder, None
+        if recorder is None:
+            return
+        try:
+            recorder.stop_and_save()
+        except Exception as exc:  # whatever the phone answers, the session ends normally
+            self.recording = {**(self.recording or {}), "state": "failed",
+                              "error": str(exc) or repr(exc)}
+            self.log(f"{self.id}: the phone did not save its recording: {exc}")
+            return
+        self.recording = {**(self.recording or {}), "state": "saved"}
+        self.log(f"{self.id}: recording saved on the phone")
 
     def mark_ended(self) -> None:
         """Write the session's end into its scenario, once.
@@ -357,6 +456,9 @@ class LiveRunner:
             scenario = self.scenario
             if scenario is None or "ended" in scenario.source:
                 return
+            if self.recording is not None:
+                # which recording on the phone goes with this diary
+                scenario.source["phone_recording"] = dict(self.recording)
             close_live_scene(self.config, scenario, self.root)
 
     def wait(self, timeout: float | None = None) -> None:
@@ -379,6 +481,8 @@ class LiveRunner:
                 status.update(pending=source.pending)
         if session is not None:
             status.update(clips_written=len(session.written), dropped=len(session.dropped))
+        if self.recording is not None:
+            status.update(recording=dict(self.recording))
         return status
 
 
