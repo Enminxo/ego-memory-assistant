@@ -238,3 +238,26 @@ def test_live_record_in_the_config_records_each_session_on_the_phone(tmp_path):
     client.post("/api/live/stop")
     live.wait(5)
     assert recorders[0].calls == ["start", "stop_and_save"]
+
+
+def test_the_greeting_puts_a_name_into_the_live_diary_through_the_app(tmp_path):
+    import time
+
+    from test_live import wait_for
+
+    client, live = make_live_app(tmp_path)
+    assert client.post("/api/live/people", json={"name": "Enmin", "seen": time.time()}).json() \
+        == {"kept": False}  # no session on
+    assert client.post("/api/live/people", json={"name": " ", "seen": 0}).status_code == 400
+
+    started = client.post("/api/live/start", json={"address": "100.1.2.3", "via": "direct"}).json()
+    wait_for(lambda: live.status().get("clips_written", 0) >= 1)
+    seen = time.time() + 0.25  # a few clips ahead, as in test_live
+    assert client.post("/api/live/people", json={"name": "Enmin", "seen": seen}).json() \
+        == {"kept": True}
+    wait_for(lambda: live.status().get("clips_written", 0) >= 8)
+    client.post("/api/live/stop")
+    live.wait(5)
+
+    entries = client.get(f"/api/scenarios/{started['id']}/memory").json()["entries"]
+    assert [e["people"] for e in entries if e["people"]] == [["Enmin"]]

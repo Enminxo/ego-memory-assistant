@@ -397,3 +397,32 @@ def test_the_companion_recorder_speaks_the_companion_api():
     closed_port = server.server_address[1]  # nobody listens there any more
     with pytest.raises(RecordingError, match="no answer from the Companion app"):
         CompanionRecorder("127.0.0.1", closed_port, timeout=1.0).start()
+
+
+def test_a_name_recognized_during_a_clip_goes_into_that_clips_entry(tmp_path):
+    runner = LiveRunner(live_config(), "default", tmp_path, lambda a: FakeStream(), FakeDescriber,
+                        log=quiet)
+    assert runner.note_sighting("Enmin", time.time()) is False  # no session on: not kept
+    runner.start("100.1.2.3")
+    wait_for(lambda: runner.state == "running" and runner.status().get("clips_written", 0) >= 1)
+    # A few clips ahead: with the real describer a sighting is always in before its clip's
+    # entry is written (LiveSession.names_in); the fake one here answers at once.
+    seen = time.time() + 0.25
+    assert runner.note_sighting("Enmin", seen) is True
+    assert runner.note_sighting("Enmin", seen + 0.01) is True  # seen again: named once
+    wait_for(lambda: runner.status().get("clips_written", 0) >= 8)
+    runner.stop()
+    runner.wait(5)
+
+    out = tmp_path / "data/memories" / runner.id / "default"
+    entries = TextualMemory.load(out / "memory.jsonl").entries()
+    named = [e for e in entries if e.people]
+    assert len(named) == 1 and named[0].people == ("Enmin",)  # only the clip the sighting fell in
+    assert runner.people_between(seen - 1, seen + 1) == ("Enmin",)
+    assert runner.people_between(seen + 1, seen + 2) == ()
+
+    runner.start("100.1.2.3")  # a new session starts with nobody seen
+    wait_for(lambda: runner.state == "running")
+    assert runner.people_between(0, time.time() + 1) == ()
+    runner.stop()
+    runner.wait(5)

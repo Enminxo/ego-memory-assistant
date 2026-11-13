@@ -41,3 +41,22 @@ def test_evidence_store(tmp_path):
     store.save(3, [np.zeros((540, 720, 3), dtype=np.uint8)] * 2, width=360)
     assert store.count(3) == 2
     assert store.path(3, 1).exists()
+
+
+def test_names_recognized_by_face_are_read_with_the_entry_and_kept_apart(tmp_path):
+    from egomem.memory import MemoryEntry, TextualMemory
+
+    path = tmp_path / "memory.jsonl"
+    memory = TextualMemory(path)
+    memory.append(MemoryEntry(0, 0.0, 15.0, "I pick up a cube.", 1.0, 8))
+    memory.append(MemoryEntry(1, 15.0, 30.0, "A person stands in front of me.", 1.0, 8,
+                              people=("Enmin",)))
+    first, second = path.read_text().splitlines()
+    assert "people" not in first  # a diary without faces keeps its old format
+    assert '"people": ["Enmin"]' in second
+
+    loaded = TextualMemory.load(path).entries()
+    assert loaded[1].people == ("Enmin",) and loaded[0].people == ()
+    assert loaded[1].text == "A person stands in front of me."  # the describer's words, untouched
+    assert loaded[1].render() == ("[00:15-00:30] A person stands in front of me. "
+                                  "(Recognized by face: Enmin.)")  # what the reader sees

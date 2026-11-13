@@ -56,6 +56,7 @@ video { width: 100%; display: block; background: #000; max-height: 56vh; }
 .entry:hover { background: var(--chip); }
 .entry.sel { border-left-color: var(--accent); background: var(--accent-soft); }
 .entry time { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; margin-right: 6px; font-size: 13px; }
+.who { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 99px; font-size: 12px; font-weight: 600; background: var(--accent); color: #fff; }
 .entry.pending { color: var(--dim); font-style: italic; cursor: default; }
 .ask { padding: 10px 12px 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
@@ -199,6 +200,9 @@ const fmt = (t) => {
   const s = Math.round(t);
   return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
 };
+// Names the face greeting recognized during the clip, apart from what the describer wrote.
+const who = (e) => (e.people && e.people.length)
+  ? `<span class="who" title="recognized by face">${esc(e.people.join(", "))}</span>` : "";
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 
 const describing = (id) => jobs[id] && jobs[id].stage === "describing";
@@ -368,7 +372,7 @@ function update() {
   shown = key;
   [...$("timeline").querySelectorAll(".seg")].forEach((s, i) => s.classList.toggle("done", i < vis.length));
   $("diary").innerHTML = vis.map((e) =>
-    `<div class="entry${selected === e.index ? " sel" : ""}" data-i="${e.index}"><time>${fmt(e.t0)}</time>${esc(e.text)}</div>`
+    `<div class="entry${selected === e.index ? " sel" : ""}" data-i="${e.index}"><time>${fmt(e.t0)}</time>${esc(e.text)}${who(e)}</div>`
   ).join("") + (writing ? `<div class="entry pending"><time>${fmt(writing.t0)}</time>${writing.label}</div>` : "")
     + (live && current.ended ? '<div class="entry pending">Session ended.</div>' : "")
     + (vis.length === 0 && !writing && !live ? '<div class="entry pending">Press play: the diary is written as the video advances.</div>' : "");
@@ -392,7 +396,7 @@ function showEvidence(entry, seek = true) {
     `<img loading="lazy" src="/api/scenarios/${current.id}/frames/${entry.index}/${i}" alt="frame ${i + 1}">`).join("");
   $("evidence").innerHTML = `<div><b>${fmt(entry.t0)}–${fmt(entry.t1)}</b></div>`
     + (shots ? `<div class="shots">${shots}</div>` : '<div class="muted">Frames were not kept in this run.</div>')
-    + `<div class="text">${esc(entry.text)}</div>`;
+    + `<div class="text">${esc(entry.text)}${who(entry)}</div>`;
   [...$("diary").querySelectorAll(".entry")].forEach((el) => el.classList.toggle("sel", Number(el.dataset.i) === selected));
 }
 

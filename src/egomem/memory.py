@@ -33,9 +33,15 @@ class MemoryEntry:
     text: str
     latency_s: float
     n_frames: int
+    # Names the face greeting recognized during the clip (live sessions). Kept
+    # apart from `text`, which is only what the describer wrote.
+    people: tuple[str, ...] = ()
 
     def render(self) -> str:
-        return f"[{fmt_time(self.t0)}-{fmt_time(self.t1)}] {self.text}"
+        line = f"[{fmt_time(self.t0)}-{fmt_time(self.t1)}] {self.text}"
+        if self.people:
+            line += f" (Recognized by face: {', '.join(self.people)}.)"
+        return line
 
 
 class TextualMemory:
@@ -51,8 +57,11 @@ class TextualMemory:
         self._entries.append(entry)
         self._entries.sort(key=lambda e: e.index)
         if self.path is not None:
+            row = asdict(entry)
+            if not row["people"]:
+                del row["people"]  # diaries without face recognition keep their format
             with self.path.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     def entries(self) -> list[MemoryEntry]:
         return list(self._entries)
@@ -80,7 +89,9 @@ class TextualMemory:
         if path.exists():
             for line in path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
-                    memory._entries.append(MemoryEntry(**json.loads(line)))
+                    row = json.loads(line)
+                    row["people"] = tuple(row.get("people", ()))
+                    memory._entries.append(MemoryEntry(**row))
         memory._entries.sort(key=lambda e: e.index)
         memory.path = path
         return memory

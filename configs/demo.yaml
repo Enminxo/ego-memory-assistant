@@ -34,4 +34,5 @@ live:
     - {text: "¿Qué cogí con la mano?"}
     - {text: "¿Dónde dejé las llaves?"}
     - {text: "¿Qué bebí?"}
+    - {text: "¿A quién he visto?"}   # answered from the names the face greeting adds
     - {text: "¿Cerré la caja?", hard: true, label: "difícil"}   # a state change, shown on purpose
