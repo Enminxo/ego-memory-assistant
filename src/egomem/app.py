@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from egomem.build_memory import build
 from egomem.config import load_config, make_describer, make_reader, memory_dir
 from egomem.describer import Describer
-from egomem.live import LiveRunner, StreamSource
+from egomem.live import CompanionRecorder, LiveRunner, Recorder, StreamSource
 from egomem.memory import EvidenceStore, MemoryEntry, TextualMemory
 from egomem.neon_stream import StaleStream
 from egomem.phone import PhoneSource, open_phone_source
@@ -119,16 +119,23 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
                live_source: Callable[[str], StreamSource] = open_neon,
                describer: Callable[[], Describer] | None = None,
                live_phone: Callable[[str], StreamSource] | None = None,
-               port: int = 8090) -> FastAPI:
+               port: int = 8090,
+               live_recorder: Callable[[str], Recorder] | None = None) -> FastAPI:
     """`port` is the one this app listens on: the phone relay sends its photos there."""
     def open_phone(address: str) -> StreamSource:
         d = config["describer"]
         return open_phone_source(address, d["clip_sec"], d["n_frames"], port,
                                  width=config.get("live", {}).get("width"))
 
+    # live.record: each session from the page is also recorded by the Companion app
+    # on the phone, to look into what its diary missed. The config decides whether;
+    # `live_recorder` only replaces CompanionRecorder (the tests' fake phone).
+    open_recorder = None
+    if config.get("live", {}).get("record", False):
+        open_recorder = live_recorder or CompanionRecorder
     live = LiveRunner(config, tag, root, live_source,
                       describer or (lambda: make_describer(config)),
-                      open_phone=live_phone or open_phone)
+                      open_phone=live_phone or open_phone, open_recorder=open_recorder)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

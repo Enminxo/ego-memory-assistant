@@ -205,3 +205,36 @@ def test_the_live_session_still_running_cannot_be_deleted(tmp_path):
     live.wait(5)
     assert trashed(client, started["id"])[0] == 200
     assert started["id"] not in [s["id"] for s in client.get("/api/scenarios").json()]
+
+
+def test_live_record_in_the_config_records_each_session_on_the_phone(tmp_path):
+    from test_live import FakeDescriber, FakeRecorder, FakeStream, wait_for
+
+    recorders: list[FakeRecorder] = []
+
+    def open_recorder(address: str) -> FakeRecorder:
+        recorders.append(FakeRecorder())
+        return recorders[-1]
+
+    def app_with(record: bool, root):
+        config = {"scenarios_dir": "scenarios", "data_dir": "data", "base_url": "http://unused",
+                  "describer": {"model": "fake", "clip_sec": 0.1, "n_frames": 2, "keep_frames": True},
+                  "live": {"record": record}}
+        app = create_app(config, "default", reader=FakeReader(), root=root,
+                         live_source=lambda address: FakeStream(), describer=FakeDescriber,
+                         live_recorder=open_recorder)
+        return TestClient(app), app.state.live
+
+    client, live = app_with(False, tmp_path / "off")
+    client.post("/api/live/start", json={"address": "100.1.2.3", "via": "direct"})
+    wait_for(lambda: live.state == "running")
+    client.post("/api/live/stop")
+    live.wait(5)
+    assert recorders == []  # live.record off: the phone records nothing
+
+    client, live = app_with(True, tmp_path / "on")
+    client.post("/api/live/start", json={"address": "100.1.2.3", "via": "direct"})
+    wait_for(lambda: client.get("/api/live").json().get("recording", {}).get("state") == "recording")
+    client.post("/api/live/stop")
+    live.wait(5)
+    assert recorders[0].calls == ["start", "stop_and_save"]

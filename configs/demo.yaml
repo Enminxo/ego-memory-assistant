@@ -24,6 +24,10 @@ reader:
 live:
   width: 720              # the phone relay scales the diary's photos to this width; at the
                           # full 1600 px the large describer needs ~29 s per 15 s window
+  record: true            # each session from the page also starts the Companion app's own
+                          # recording on the phone (full video and gaze), stopped and saved on
+                          # Stop, to look into what the diary missed. It is saved on the phone;
+                          # with Cloud upload on in Companion it also goes to Pupil Cloud
   hint: "Pregunta qué hiciste o dónde dejaste algo. Tu acción tarda unos 30 s en salir en el diario."
   demo_questions:         # buttons of every new live session, for the stand's three actions
     - {text: "¿Qué he hecho hasta ahora?"}

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from egomem.clips import frame_offsets
-from egomem.live import LiveRunner, LiveSession, run_live
+from egomem.live import CompanionRecorder, LiveRunner, LiveSession, RecordingError, run_live
 from egomem.llm import ChatResult
 from egomem.memory import EvidenceStore, TextualMemory
 from egomem.neon_stream import StaleStream
@@ -257,3 +257,143 @@ def test_stop_while_waiting_for_the_first_picture_opens_no_tab(tmp_path):
     runner.wait(5)
     assert runner.state == "ended" and runner.source.closed
     assert not list(tmp_path.glob("scenarios/*.json"))
+
+
+class FakeRecorder:
+    """The Companion app's recording, as the runner sees it."""
+
+    def __init__(self, refuse: str | None = None) -> None:
+        self.refuse = refuse
+        self.calls: list[str] = []
+
+    def start(self) -> str:
+        self.calls.append("start")
+        if self.refuse:
+            raise RecordingError(self.refuse)
+        return "rec-1"
+
+    def stop_and_save(self) -> None:
+        self.calls.append("stop_and_save")
+
+
+def test_the_phone_records_each_session_from_go_live_to_stop(tmp_path):
+    recorders: list[FakeRecorder] = []
+
+    def open_recorder(address: str) -> FakeRecorder:
+        assert address == "100.1.2.3"  # the phone the session reads from
+        recorders.append(FakeRecorder())
+        return recorders[-1]
+
+    runner = LiveRunner(live_config(), "default", tmp_path, lambda a: FakeStream(), FakeDescriber,
+                        log=quiet, open_recorder=open_recorder)
+    runner.start("100.1.2.3", "Visitor 1")
+    wait_for(lambda: runner.status().get("clips_written", 0) >= 1)
+    assert runner.status()["recording"] == {"state": "recording", "id": "rec-1", "error": None}
+    runner.stop()
+    assert recorders[0].calls == ["start", "stop_and_save"]  # saved at Stop, not later
+    runner.wait(5)
+    assert recorders[0].calls == ["start", "stop_and_save"]  # and only once
+
+    scenario = load_scenario(tmp_path / "scenarios" / f"{runner.id}.json")
+    assert scenario.source["phone_recording"] == {"state": "saved", "id": "rec-1", "error": None}
+
+    runner.start("100.1.2.3", "Visitor 2")  # the next session gets its own recording
+    wait_for(lambda: runner.state == "running")
+    runner.stop()
+    runner.wait(5)
+    assert len(recorders) == 2 and recorders[1].calls == ["start", "stop_and_save"]
+
+
+def test_a_phone_that_refuses_to_record_does_not_stop_the_diary(tmp_path):
+    recorder = FakeRecorder(refuse="Recording already running")
+    runner = LiveRunner(live_config(), "default", tmp_path, lambda a: FakeStream(), FakeDescriber,
+                        log=quiet, open_recorder=lambda a: recorder)
+    runner.start("100.1.2.3")
+    wait_for(lambda: runner.status().get("clips_written", 0) >= 2)
+    status = runner.status()
+    assert status["state"] == "running" and status["error"] is None
+    assert status["recording"]["state"] == "failed"
+    assert status["recording"]["error"] == "Recording already running"
+    runner.stop()
+    runner.wait(5)
+    assert recorder.calls == ["start"]  # nothing to stop
+    assert runner.state == "ended"
+
+
+def test_a_phone_that_answers_nonsense_does_not_stop_the_diary(tmp_path):
+    class Garbled(FakeRecorder):
+        def start(self) -> str:
+            raise KeyError("result")  # an answer without the recording's id
+
+    runner = LiveRunner(live_config(), "default", tmp_path, lambda a: FakeStream(), FakeDescriber,
+                        log=quiet, open_recorder=lambda a: Garbled())
+    runner.start("100.1.2.3")
+    wait_for(lambda: runner.status().get("clips_written", 0) >= 1)
+    assert runner.status()["recording"]["state"] == "failed"
+    runner.stop()
+    runner.wait(5)
+    assert runner.state == "ended" and runner.error is None
+
+
+def test_a_session_without_a_recorder_records_nothing(tmp_path):
+    runner = LiveRunner(live_config(), "default", tmp_path, lambda a: FakeStream(), FakeDescriber,
+                        log=quiet)
+    runner.start("100.1.2.3")
+    wait_for(lambda: runner.state == "running")
+    assert "recording" not in runner.status()
+    runner.stop()
+    runner.wait(5)
+    assert "phone_recording" not in load_scenario(
+        tmp_path / "scenarios" / f"{runner.id}.json").source
+
+
+def test_the_companion_recorder_speaks_the_companion_api():
+    """Against a stand-in of the Companion app: same paths, same JSON as pupil_labs.realtime_api."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    seen: list[str] = []
+    recording = {"on": False}
+
+    class Companion(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            seen.append(self.path)
+            if self.path == "/api/recording:start" and not recording["on"]:
+                recording["on"] = True
+                code, body = 200, {"message": "Recording started", "result": {"id": "abc-123"}}
+            elif self.path == "/api/recording:start":
+                code, body = 400, {"message": "Recording already running"}
+            elif self.path == "/api/recording:stop_and_save" and recording["on"]:
+                recording["on"] = False
+                code, body = 200, {"message": "Recording stopped and saved", "result": {}}
+            else:
+                code, body = 400, {"message": "Recording not running"}
+            data = json.dumps(body).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Companion)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        recorder = CompanionRecorder("127.0.0.1", server.server_address[1])
+        assert recorder.start() == "abc-123"
+        with pytest.raises(RecordingError, match="Recording already running"):
+            recorder.start()
+        recorder.stop_and_save()
+        with pytest.raises(RecordingError, match="Recording not running"):
+            recorder.stop_and_save()
+        assert seen == ["/api/recording:start"] * 2 + ["/api/recording:stop_and_save"] * 2
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    closed_port = server.server_address[1]  # nobody listens there any more
+    with pytest.raises(RecordingError, match="no answer from the Companion app"):
+        CompanionRecorder("127.0.0.1", closed_port, timeout=1.0).start()
