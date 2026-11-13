@@ -56,10 +56,18 @@ class RelayClient:
         except urllib.error.URLError as exc:
             raise ConnectionError(f"the phone relay at {self.url} did not answer: {exc}") from exc
 
-    def diary_start(self, port: int, token: str, clip_sec: float, n_frames: int) -> dict:
-        """Start sending the diary's photos to this machine's app, on `port`."""
-        return self._post("/diary/start", {"port": port, "token": token,
-                                           "clip_sec": clip_sec, "n_frames": n_frames})
+    def diary_start(self, port: int, token: str, clip_sec: float, n_frames: int,
+                    width: int | None = None) -> dict:
+        """Start sending the diary's photos to this machine's app, on `port`.
+
+        `width` asks the relay to scale the photos down before sending them.
+        None keeps the scene camera's full 1600 px, which the large describer
+        cannot keep up with live (29 s for every 15 s window).
+        """
+        body: dict = {"port": port, "token": token, "clip_sec": clip_sec, "n_frames": n_frames}
+        if width is not None:
+            body["width"] = int(width)
+        return self._post("/diary/start", body)
 
     def diary_stop(self) -> dict:
         return self._post("/diary/stop", {})
@@ -202,7 +210,8 @@ class PhoneSource:
 
 def open_phone_source(address: str, clip_sec: float, n_frames: int, app_port: int,
                       relay_port: int = RELAY_PORT,
-                      log: Callable[[str], None] = print) -> PhoneSource:
+                      log: Callable[[str], None] = print,
+                      width: int | None = None) -> PhoneSource:
     """Ask the relay on the phone at `address` to send this session's photos to us.
 
     The relay sends them back to whichever address this request came from,
@@ -212,5 +221,5 @@ def open_phone_source(address: str, clip_sec: float, n_frames: int, app_port: in
     netloc = f"[{address}]" if ":" in address else address
     relay = RelayClient(f"http://{netloc}:{relay_port}")
     source = PhoneSource(relay, clip_sec, n_frames, log=log)
-    relay.diary_start(app_port, source.token, clip_sec, n_frames)
+    relay.diary_start(app_port, source.token, clip_sec, n_frames, width)
     return source

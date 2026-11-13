@@ -73,6 +73,21 @@ def test_live_scenario_appears_after_start_and_has_no_video(tmp_path):
     assert len(reader.seen) == 1
 
 
+def test_live_scenarios_carry_the_stand_hint_and_recordings_do_not(tmp_path):
+    (tmp_path / "scenarios").mkdir()
+    Scenario(id="live-1", title="Live", category="other", live=True).save(
+        tmp_path / "scenarios/live-1.json")
+    Scenario(id="rec", title="Recording", category="other", video="data/scenes/rec.mp4").save(
+        tmp_path / "scenarios/rec.json")
+    config = {"scenarios_dir": "scenarios", "data_dir": "data", "describer": {"clip_sec": 15},
+              "live": {"hint": "Ask what you did."}}
+    client = TestClient(create_app(config, "default", reader=FakeReader(), root=tmp_path))
+
+    listed = {s["id"]: s for s in client.get("/api/scenarios").json()}
+    assert listed["live-1"]["hint"] == "Ask what you did."
+    assert listed["rec"]["hint"] == ""
+
+
 def make_live_app(tmp_path):
     from test_live import FakeDescriber, FakeStream
 

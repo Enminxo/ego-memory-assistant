@@ -123,7 +123,8 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     """`port` is the one this app listens on: the phone relay sends its photos there."""
     def open_phone(address: str) -> StreamSource:
         d = config["describer"]
-        return open_phone_source(address, d["clip_sec"], d["n_frames"], port)
+        return open_phone_source(address, d["clip_sec"], d["n_frames"], port,
+                                 width=config.get("live", {}).get("width"))
 
     live = LiveRunner(config, tag, root, live_source,
                       describer or (lambda: make_describer(config)),
@@ -174,6 +175,7 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     def list_scenarios() -> list[dict]:
         return [{"id": s.id, "title": s.title, "category": s.category,
                  "demo_questions": s.demo_questions, "live": s.live,
+                 "hint": config.get("live", {}).get("hint", "") if s.live else "",
                  "ended": s.live and "ended" in s.source, "own": own_recording(s),
                  "n_entries": len(load_memory(s.id))}
                 # Own recordings (uploaded or live) after the demo scenes, each group in file order.

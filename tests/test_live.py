@@ -109,6 +109,19 @@ def test_run_live_writes_a_live_scenario_and_marks_its_end(tmp_path, monkeypatch
     assert EvidenceStore(out / "frames").count(0) == 2
     with pytest.raises(SystemExit):  # an existing diary is never appended to by a new session
         run_live(config, StaticSource(), "live-t", "Live", None, minutes=0.3 / 60, record=False)
+    assert scenario.demo_questions == []  # no live block in the config: no buttons
+
+
+def test_a_new_live_session_gets_the_prepared_questions_of_the_config(tmp_path, monkeypatch):
+    monkeypatch.setattr("egomem.live.make_describer", lambda config: FakeDescriber())
+    questions = [{"text": "¿Dónde dejé las llaves?"},
+                 {"text": "¿Cerré la caja?", "hard": True, "label": "difícil"}]
+    config = {"scenarios_dir": str(tmp_path / "scenarios"), "data_dir": str(tmp_path / "data"),
+              "base_url": "http://unused", "live": {"demo_questions": questions},
+              "describer": {"model": "fake", "clip_sec": 0.1, "n_frames": 2, "keep_frames": True}}
+    run_live(config, StaticSource(), "live-q", "Stand", None, minutes=0.2 / 60, record=False)
+
+    assert load_scenario(tmp_path / "scenarios/live-q.json").demo_questions == questions
 
 
 def test_clips_without_recent_video_are_dropped_not_described():

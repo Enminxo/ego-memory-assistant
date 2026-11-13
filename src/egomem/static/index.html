@@ -59,6 +59,11 @@ video { width: 100%; display: block; background: #000; max-height: 56vh; }
 .entry.pending { color: var(--dim); font-style: italic; cursor: default; }
 .ask { padding: 10px 12px 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+/* Prepared questions of a live session (configs/demo.yaml, live.demo_questions). */
+.chip:disabled { opacity: .45; cursor: not-allowed; }
+.chip.hard { border-style: dashed; border-color: var(--accent); }
+.chip .tag { margin-left: 6px; font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+.hint { font-size: 13px; color: var(--dim); margin-bottom: 8px; }
 form { display: flex; gap: 8px; }
 input[type=text], select { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 8px;
                    border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
@@ -169,6 +174,7 @@ body.live .live-note { display: flex; }
     <div class="panel" style="margin-top:14px">
       <h2>Ask</h2>
       <div class="ask">
+        <div class="hint" id="livehint" hidden></div>
         <div class="chips" id="chips"></div>
         <form id="form"><input type="text" id="q" placeholder="Where did I leave…?" autocomplete="off"><button>Ask</button></form>
         <div id="answers"></div>
@@ -249,10 +255,15 @@ async function load(id) {
   shown = -1; selected = null;
   $("answers").innerHTML = "";
   $("evidence").innerHTML = '<div class="muted">Click a diary entry or a moment cited in an answer.</div>';
+  $("livehint").textContent = current.hint || "";
+  $("livehint").hidden = !(current.live && current.hint);
   $("chips").innerHTML = (current.demo_questions || []).map((q, i) =>
-    `<button class="chip" data-i="${i}">${esc(q.text)}</button>`).join("");
+    `<button class="chip${q.hard ? " hard" : ""}" data-i="${i}">${esc(q.text)}`
+    + (q.label ? `<span class="tag">${esc(q.label)}</span>` : "") + "</button>").join("");
+  setChipsEnabled();
   $("chips").onclick = (e) => {
-    const q = current.demo_questions[e.target.dataset.i];
+    const chip = e.target.closest(".chip");
+    const q = chip && current.demo_questions[chip.dataset.i];
     if (!q) return;
     // "expected" comes from the QAEgo4D annotation; "checked" was verified by eye on the frames.
     if (q.expected) ask(q.text, `QAEgo4D answer: ${q.expected}`);
@@ -299,7 +310,18 @@ async function refresh() {
   shown = -1;
   drawTimeline();
   update();
+  setChipsEnabled();
   if (current.live && following) showEvidence(entries[entries.length - 1], false);
+}
+
+// Live, a question asked before the first diary entry can only get "nothing
+// yet", so the prepared questions wait for it.
+function setChipsEnabled() {
+  const waiting = !!current && current.live && entries.length === 0;
+  [...$("chips").children].forEach((b) => {
+    b.disabled = waiting;
+    b.title = waiting ? "Waiting for the first diary entry" : "";
+  });
 }
 
 function visibleEntries() {

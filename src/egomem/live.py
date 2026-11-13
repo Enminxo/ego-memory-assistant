@@ -187,7 +187,11 @@ def open_live_scene(config: dict, scene_id: str, title: str, address: str | None
     if (out / "memory.jsonl").exists():
         raise FileExistsError(f"{scene_id} already has a diary; pick another id")
     via = "phone" if isinstance(source, PhoneSource) else "direct"
+    # The prepared questions of configs/demo.yaml (live.demo_questions) become the
+    # session's buttons: at a stand, visitors pick what the diary can answer.
+    questions = [dict(q) for q in config.get("live", {}).get("demo_questions", [])]
     scenario = Scenario(id=scene_id, title=title, category="other", live=True,
+                        demo_questions=questions,
                         source={"neon": address or "discovered", "via": via,
                                 "started": datetime.now().isoformat(timespec="seconds")})
     scenario.save(root / config["scenarios_dir"] / f"{scene_id}.json")

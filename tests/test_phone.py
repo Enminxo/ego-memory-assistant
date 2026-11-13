@@ -189,3 +189,19 @@ def test_photos_from_the_relay_become_diary_entries(tmp_path):
         thread.join(5)
         relay_server.shutdown()
         relay.close()
+
+
+def test_the_relay_scales_the_photos_only_when_the_app_asks_for_a_width(tmp_path):
+    """configs/demo.yaml live.width reaches the relay; without it the photos stay full size."""
+    relay = Relay(tmp_path / "relay", lambda text: None, ffmpeg=None)
+    relay.start()
+    relay_server = serve(relay, "127.0.0.1", 0)
+    try:
+        port = relay_server.server_address[1]
+        open_phone_source("127.0.0.1", 15, 8, 8090, relay_port=port, log=quiet)
+        assert relay.session.width is None
+        open_phone_source("127.0.0.1", 15, 8, 8090, relay_port=port, log=quiet, width=720)
+        assert relay.session.width == 720 and relay.diary_params == (15, 8, 720)
+    finally:
+        relay_server.shutdown()
+        relay.close()
