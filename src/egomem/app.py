@@ -134,6 +134,7 @@ def mjpeg_part(jpeg: bytes) -> bytes:
 
 
 MONITOR_PORT = 8080  # the Companion app's own web page, Neon Monitor
+SHUTDOWN_GRACE_SEC = 5  # how long a closing app waits for open connections (main)
 
 
 def monitor_file(address: str, path: str, timeout: float = 10.0) -> Response:
@@ -392,8 +393,13 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8090)
     args = parser.parse_args()
+    # The live view's stream never ends while a session runs, so on Ctrl+C or pkill
+    # uvicorn waited for it forever: on 16 Nov 2026 the old app stayed alive, serving
+    # the open browser tab an old session, while a new app answered everyone else.
+    # After SHUTDOWN_GRACE_SEC open connections are cut and the shutdown goes on
+    # (the live session is still stopped, its clips described and saved).
     uvicorn.run(create_app(load_config(args.config), args.tag, port=args.port),
-                host=args.host, port=args.port)
+                host=args.host, port=args.port, timeout_graceful_shutdown=SHUTDOWN_GRACE_SEC)
 
 
 if __name__ == "__main__":
