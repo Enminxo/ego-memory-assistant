@@ -107,6 +107,9 @@ body.live video, body.live .timeline, body.live .legend, body.live #mode { displ
 /* Going live from the page (live.LiveRunner): the glasses' view replaces the video. */
 #feed { display: none; width: 100%; max-height: 56vh; object-fit: contain; background: #000; }
 body.feed #feed { display: block; }
+/* ?monitor: the Companion app's own live view (Neon Monitor) in place of #feed */
+#monitor { display: none; width: 100%; height: 56vh; border: 0; background: #000; }
+body.monitor #monitor { display: block; }
 .live-note { display: none; padding: 10px 12px; align-items: center; gap: 10px; flex-wrap: wrap; }
 body.live .live-note { display: flex; }
 .live-note .warn { color: var(--err); }
@@ -160,6 +163,7 @@ body.live .live-note { display: flex; }
       <div class="timeline" id="timeline"></div>
       <div class="legend">Each segment is a video clip. It fills in once its diary entry has been written.</div>
       <img id="feed" alt="What the glasses see now">
+      <iframe id="monitor" title="What the glasses see now, from the Companion app" allow="autoplay; fullscreen"></iframe>
       <div class="live-note" id="livenote"></div>
     </div>
     <div class="panel" style="margin-top:14px">
@@ -533,13 +537,26 @@ async function pollJobs() {
 // The session this app is running is the one on screen: show what the glasses see.
 const streaming = () => !!current && live.id === current.id && live.state === "running";
 
+// ?monitor (or ?monitor=<host>) shows the Companion app's own live view, Neon Monitor
+// on port 8080 of the phone, instead of the relay's 3 pictures per second: fluid
+// video with the gaze, but about 6 Mbit/s from the phone (measured 16 Nov 2026 over
+// Tailscale). The monitor finds the phone as neon.local, so this browser must
+// resolve that name to the phone's Tailscale address (a line in the hosts file, or
+// Chrome's --host-resolver-rules); opened by the IP it stays on "Connect Neon".
+const MONITOR = (() => {
+  const host = new URLSearchParams(location.search).get("monitor");
+  return host === null ? null : (host && host !== "1" ? host : "neon.local");
+})();
+
 function setFeed() {
   const on = streaming();
   if (on === feedOn) return;
   feedOn = on;
-  document.body.classList.toggle("feed", on);
-  // Pointing the image elsewhere closes the stream's connection.
-  $("feed").src = on ? `/api/live/stream.mjpg?t=${Date.now()}` : "data:,";
+  document.body.classList.toggle("feed", on && !MONITOR);
+  document.body.classList.toggle("monitor", on && !!MONITOR);
+  // Pointing the image or the frame elsewhere closes its stream's connection.
+  $("feed").src = on && !MONITOR ? `/api/live/stream.mjpg?t=${Date.now()}` : "data:,";
+  $("monitor").src = on && MONITOR ? `http://${MONITOR}:8080/` : "about:blank";
 }
 
 // The phone's own recording of the session (live.record in configs/demo.yaml).
