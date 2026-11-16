@@ -242,7 +242,11 @@ async function load(id) {
   if (!scenarios.find((s) => s.id === id)) return;
   current = scenarios.find((s) => s.id === id);
   [...$("tabs").children].forEach((b) => b.classList.toggle("on", b.dataset.id === id));
-  entries = (await (await fetch(`/api/scenarios/${id}/memory`)).json()).entries;
+  const fetched = (await (await fetch(`/api/scenarios/${id}/memory`)).json()).entries;
+  // Another tab was opened while this diary was on its way (the page's first tab
+  // against the running live session): the later one stays.
+  if (!current || current.id !== id) return;
+  entries = fetched;
   clearInterval(poll);
   document.body.classList.toggle("live", !!current.live);
   if (current.live) {
@@ -595,7 +599,10 @@ async function pollLive() {
     scenarios = await (await fetch("/api/scenarios")).json();
     if (current) current = scenarios.find((s) => s.id === current.id) || current;
     renderTabs();
-    if (live.state === "running" && openLive === live.id) {
+    // Open the running session wherever it was started: from this page, from the
+    // phone's button, or before this page was loaded. On 16 Nov 2026 a session
+    // started from the phone left the page on an old diary, as if nothing ran.
+    if (live.state === "running") {
       openLive = null;
       $("golive").hidden = true;
       $("livebtn").classList.remove("on");
