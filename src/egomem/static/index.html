@@ -623,11 +623,16 @@ async function pollLive() {
   renderDelete();  // the session on screen may have just started or ended
 }
 
+// The phone relay shows no help: at the stand the visitors see this page (16 Nov 2026).
 const LIVE_HELP = {
-  phone: "The glasses must be plugged into the phone, with the Companion app open and the relay running in Termux (python phone_relay.py --bind <phone's Tailscale IP>). The phone picks eight photos every 15 s and sends only those, so a slow Wi-Fi delays them instead of losing them.",
+  phone: "",
   direct: "The glasses must be plugged into the phone, with the Companion app open. The whole video comes over the app's WebSocket (port 8686), and every 15 s eight of its frames are described into the diary. A busy Wi-Fi can make it fall behind.",
 };
-const showLiveHelp = () => { $("livehelp").textContent = LIVE_HELP[$("livevia").value]; };
+const showLiveHelp = () => {
+  const text = LIVE_HELP[$("livevia").value];
+  $("livehelp").textContent = text;
+  $("livehelp").hidden = !text;  // no empty padded box
+};
 $("livevia").onchange = showLiveHelp;
 showLiveHelp();
 
