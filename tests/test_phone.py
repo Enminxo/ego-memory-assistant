@@ -252,3 +252,53 @@ def test_the_live_view_shows_the_relays_quick_pictures_each_once(tmp_path):
         viewer.join(timeout=5)
         relay_server.shutdown()
         relay.close()
+
+
+def test_the_companion_monitor_is_served_pointing_at_the_phone(tmp_path):
+    """Neon Monitor looks the phone up as neon.local, which browsers on Tailscale cannot
+    resolve: /monitor/ serves its page and code with the phone's address instead."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    import egomem.app as app_module
+
+    files = {
+        "/": ("text/html", '<script type="module" src="/assets/app.js"></script>'
+                           '<link href="/assets/app.css">'),
+        "/assets/app.js": ("application/javascript",
+                           'const B={BASE:"http://neon.local:8080/api"};img="/assets/x.png"'),
+        "/assets/x.png": ("image/png", "PNG neon.local"),
+    }
+
+    class Phone(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if self.path not in files:
+                self.send_response(404)
+                self.end_headers()
+                return
+            ctype, text = files[self.path]
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.end_headers()
+            self.wfile.write(text.encode())
+
+        def log_message(self, *args) -> None:
+            pass
+
+    phone = ThreadingHTTPServer(("127.0.0.1", 0), Phone)
+    threading.Thread(target=phone.serve_forever, daemon=True).start()
+    old_port = app_module.MONITOR_PORT
+    app_module.MONITOR_PORT = phone.server_address[1]
+    try:
+        app = create_app(live_config(), "default", reader=FakeReader(), root=tmp_path)
+        client = TestClient(app)
+        assert client.get("/monitor/").status_code == 404  # no live session named a phone yet
+        app.state.live.address = "127.0.0.1"
+        page = client.get("/monitor/").text
+        assert 'src="/monitor/assets/app.js"' in page and 'href="/monitor/assets/app.css"' in page
+        code = client.get("/monitor/assets/app.js").text
+        assert 'BASE:"http://127.0.0.1:8080/api"' in code and '"/monitor/assets/x.png"' in code
+        assert client.get("/monitor/assets/x.png").content == b"PNG neon.local"  # images untouched
+        assert client.get("/monitor/missing").status_code == 404
+    finally:
+        app_module.MONITOR_PORT = old_port
+        phone.shutdown()

@@ -18,15 +18,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import shutil
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from egomem.build_memory import build
@@ -128,6 +131,37 @@ def mjpeg_part(jpeg: bytes) -> bytes:
     """One picture of an MJPEG stream."""
     return (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
             + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
+
+
+MONITOR_PORT = 8080  # the Companion app's own web page, Neon Monitor
+
+
+def monitor_file(address: str, path: str, timeout: float = 10.0) -> Response:
+    """A file of Neon Monitor, fetched from the phone, ready to be served under /monitor/.
+
+    The monitor looks the phone up as neon.local, which a browser elsewhere on
+    Tailscale cannot resolve ("neon.local's server IP address could not be
+    found", 16 Nov 2026). Its page and code are passed on with that name
+    replaced by the phone's address and their root paths moved under /monitor/;
+    the video then goes straight from the phone to the browser (WebSocket, 8686).
+    """
+    netloc = f"[{address}]" if ":" in address else address
+    try:
+        with urllib.request.urlopen(f"http://{netloc}:{MONITOR_PORT}/{path}",
+                                    timeout=timeout) as response:
+            body = response.read()
+            ctype = response.headers.get("Content-Type", "application/octet-stream")
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise HTTPException(exc.code, f"the Companion app answered {exc.code}") from exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise HTTPException(502, f"the Companion app at {address} did not answer: {exc}") from exc
+    if "html" in ctype or "javascript" in ctype:
+        text = body.decode("utf-8")
+        text = re.sub(r'(href|src)="/(?!monitor/)', r'\1="/monitor/', text)
+        text = text.replace('"/assets/', '"/monitor/assets/').replace("neon.local", netloc)
+        body = text.encode("utf-8")
+    return Response(body, media_type=ctype, headers={"Cache-Control": "no-store"})
 
 
 def create_app(config: dict, tag: str, reader: Reader | None = None,
@@ -319,6 +353,13 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
         running = lambda: live.source is source and live.state in ("connecting", "running")
         return StreamingResponse(mjpeg(source, running), headers={"Cache-Control": "no-store"},
                                  media_type="multipart/x-mixed-replace; boundary=frame")
+
+    @app.get("/monitor/{path:path}")
+    def monitor(path: str) -> Response:
+        """Neon Monitor of the phone the last live session used (page: ?monitor)."""
+        if not live.address:
+            raise HTTPException(404, "no live session has named a phone yet")
+        return monitor_file(live.address, path)
 
     @app.post("/api/ask")
     def ask(request: AskRequest) -> dict:

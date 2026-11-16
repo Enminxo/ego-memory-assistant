@@ -537,15 +537,16 @@ async function pollJobs() {
 // The session this app is running is the one on screen: show what the glasses see.
 const streaming = () => !!current && live.id === current.id && live.state === "running";
 
-// ?monitor (or ?monitor=<host>) shows the Companion app's own live view, Neon Monitor
-// on port 8080 of the phone, instead of the relay's 3 pictures per second: fluid
-// video with the gaze, but about 6 Mbit/s from the phone (measured 16 Nov 2026 over
-// Tailscale). The monitor finds the phone as neon.local, so this browser must
-// resolve that name to the phone's Tailscale address (a line in the hosts file, or
-// Chrome's --host-resolver-rules); opened by the IP it stays on "Connect Neon".
+// ?monitor shows the Companion app's own live view, Neon Monitor, instead of the
+// relay's 3 pictures per second: fluid video with the gaze, but about 6 Mbit/s from
+// the phone (measured 16 Nov 2026 over Tailscale). It comes through this app
+// (/monitor/, app.monitor_file), which points it at the phone's address: on its own
+// it looks the phone up as neon.local, a name browsers on Tailscale cannot resolve.
+// ?monitor=<host> opens it straight from <host>:8080 instead (same Wi-Fi as the phone).
 const MONITOR = (() => {
   const host = new URLSearchParams(location.search).get("monitor");
-  return host === null ? null : (host && host !== "1" ? host : "neon.local");
+  if (host === null) return null;
+  return host && host !== "1" ? `http://${host}:8080/` : "/monitor/";
 })();
 
 function setFeed() {
@@ -556,7 +557,7 @@ function setFeed() {
   document.body.classList.toggle("monitor", on && !!MONITOR);
   // Pointing the image or the frame elsewhere closes its stream's connection.
   $("feed").src = on && !MONITOR ? `/api/live/stream.mjpg?t=${Date.now()}` : "data:,";
-  $("monitor").src = on && MONITOR ? `http://${MONITOR}:8080/` : "about:blank";
+  $("monitor").src = on && MONITOR ? MONITOR : "about:blank";
 }
 
 // The phone's own recording of the session (live.record in configs/demo.yaml).
