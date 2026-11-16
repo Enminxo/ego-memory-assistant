@@ -214,3 +214,41 @@ def test_a_clip_from_the_phone_knows_when_it_happened_on_the_wall_clock():
     source.add_photo(source.token, 0, 1, 1000.0 + 11.25, 0, jpeg(20))  # and of 7.5-15 s
     clip = source.next_clip(timeout=0)
     assert (clip.wall_t0, clip.wall_t1) == (1000.0, 1015.0)
+
+
+def test_the_live_view_shows_the_relays_quick_pictures_each_once(tmp_path):
+    """Through the phone, the page's live view follows the relay's 3 pictures per
+    second, not the diary's one every 1.9 s; a picture is never sent twice, and
+    while the relay has none recent nothing is sent."""
+    from egomem.app import mjpeg
+    from egomem.phone import RelayClient
+
+    relay = Relay(tmp_path / "relay", lambda text: None, ffmpeg=None)
+    relay.start()
+    relay_server = serve(relay, "127.0.0.1", 0)
+    client = RelayClient(f"http://127.0.0.1:{relay_server.server_address[1]}")
+    source = PhoneSource(client, clip_sec=15, n_frames=8, log=quiet)
+    got: list[bytes] = []
+    stop = threading.Event()
+
+    def watch() -> None:
+        for part in mjpeg(source, lambda: not stop.is_set()):
+            got.append(part)
+
+    relay.face_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer = threading.Thread(target=watch, daemon=True)
+    viewer.start()
+    try:
+        time.sleep(0.8)
+        assert got == []  # no picture on the phone yet (the relay answers 503)
+        for i in range(3):
+            relay.face_path.write_bytes(f"quick {i}".encode())
+            wait_for(lambda: len(got) == i + 1)
+            assert got[-1].endswith(f"quick {i}\r\n".encode())
+        time.sleep(2.5)  # the relay's 2 s wait runs out: 304, nothing new is sent
+        assert len(got) == 3
+    finally:
+        stop.set()
+        viewer.join(timeout=5)
+        relay_server.shutdown()
+        relay.close()

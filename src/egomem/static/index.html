@@ -557,7 +557,8 @@ function renderLiveNote() {
   if (streaming() && live.via === "phone") {
     // Photos picked on the phone (phone_relay.py): one every clip_sec / n_frames seconds.
     const parts = [`<b class="dot">●</b> Live through the phone`];
-    if (live.fps > 0) parts.push(`a photo every ${(1 / live.fps).toFixed(1)} s`);
+    // the view shows the relay's quick pictures; the diary gets one photo every ~1.9 s
+    if (live.fps > 0) parts.push(`a diary photo every ${(1 / live.fps).toFixed(1)} s`);
     if (live.video_age_s !== null && live.video_age_s > 6)
       parts.push(`<span class="warn">no photo for ${Math.round(live.video_age_s)} s: the phone keeps them and sends them later</span>`);
     else if (live.lag_s !== null && live.lag_s !== undefined)

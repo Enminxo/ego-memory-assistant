@@ -29,7 +29,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import numpy as np
 from PIL import Image
@@ -74,6 +74,33 @@ class RelayClient:
 
     def say(self, text: str) -> dict:
         return self._post("/say", {"text": text})
+
+    def preview(self, running: Callable[[], bool], timeout: float = 5.0,
+                retry_sec: float = 0.5) -> Iterator[bytes]:
+        """The relay's quick pictures, each one once, while `running()`.
+
+        The relay makes 3 per second for the face greeting (960 px, about 53 KB
+        each on 2026-11-16), against one every 1.9 s for the diary, which made
+        the page's live view jerky. Each request names the last picture had and
+        the relay waits for a newer one (304 if none within 2 s). While the relay
+        has no recent picture or does not answer, nothing is yielded.
+        """
+        seq: str | None = None
+        while running():
+            url = f"{self.url}/latest.jpg" + (f"?after={seq}" if seq is not None else "")
+            try:
+                with urllib.request.urlopen(url, timeout=timeout) as response:
+                    seq = response.headers.get("X-Frame-Seq")
+                    jpeg = response.read()
+            except urllib.error.HTTPError as exc:
+                exc.close()
+                if exc.code != 304:  # 503: no recent picture on the phone
+                    time.sleep(retry_sec)
+                continue
+            except (urllib.error.URLError, OSError):
+                time.sleep(retry_sec)
+                continue
+            yield jpeg
 
 
 class PhoneSource:

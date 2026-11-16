@@ -108,15 +108,26 @@ def mjpeg(source: StreamSource, running: Callable[[], bool], fps: float = 10.0) 
     While no recent frame arrives nothing is sent, so the page keeps the last
     picture and the status line says how old it is.
     """
+    if isinstance(source, PhoneSource) and source.relay is not None:
+        # Through the phone, the diary's photos come one every 1.9 s: show the
+        # relay's quick pictures instead, 3 per second (RelayClient.preview).
+        for jpeg in source.relay.preview(running):
+            yield mjpeg_part(jpeg)
+        return
     while running():
         try:
             jpeg = source.latest_jpeg()
         except (StaleStream, TimeoutError):
             jpeg = None
         if jpeg is not None:
-            yield (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
-                   + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
+            yield mjpeg_part(jpeg)
         time.sleep(1 / fps)
+
+
+def mjpeg_part(jpeg: bytes) -> bytes:
+    """One picture of an MJPEG stream."""
+    return (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+            + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
 
 
 def create_app(config: dict, tag: str, reader: Reader | None = None,
