@@ -560,45 +560,22 @@ function setFeed() {
   $("monitor").src = on && MONITOR ? MONITOR : "about:blank";
 }
 
-// The phone's own recording of the session (live.record in configs/demo.yaml).
-function recordingNote() {
-  const rec = live.recording;
-  if (!rec) return null;
-  if (rec.state === "recording") return `<b class="dot">●</b> recording on the phone`;
-  if (rec.state === "failed") return `<span class="warn">not recording on the phone: ${esc(rec.error || "no answer")}</span>`;
-  return null;
-}
-
 function renderLiveNote() {
   if (!current || !current.live) return;
   let html;
-  if (streaming() && live.via === "phone") {
-    // Photos picked on the phone (phone_relay.py): one every clip_sec / n_frames seconds.
-    const parts = [`<b class="dot">●</b> Live through the phone`];
-    // the view shows the relay's quick pictures; the diary gets one photo every ~1.9 s
-    if (live.fps > 0) parts.push(`a diary photo every ${(1 / live.fps).toFixed(1)} s`);
-    if (live.video_age_s !== null && live.video_age_s > 6)
-      parts.push(`<span class="warn">no photo for ${Math.round(live.video_age_s)} s: the phone keeps them and sends them later</span>`);
-    else if (live.lag_s !== null && live.lag_s !== undefined)
-      parts.push(`arrived ${live.lag_s.toFixed(1)} s after it was taken`);
-    if (live.pending > 1) parts.push(`<span class="warn">${live.pending} waiting on the phone</span>`);
-    parts.push(`${live.clips_written} entries`);
-    if (live.dropped) parts.push(`<span class="warn">${live.dropped} clips dropped</span>`);
-    if (recordingNote()) parts.push(recordingNote());
-    html = `<span>${parts.join(" · ")}</span>` + (stopping
-      ? '<span class="muted">stopping: describing the clips already taken…</span>'
-      : '<button class="chip" id="stopbtn">Stop</button>');
-  } else if (streaming()) {
-    const parts = [`<b class="dot">●</b> Live`, `${live.fps} fps`];
-    if (live.video_age_s !== null && live.video_age_s > 3)
-      parts.push(`<span class="warn">no video for ${Math.round(live.video_age_s)} s, reconnecting</span>`);
-    else if (live.lag_s !== null && live.lag_s !== undefined)
-      // Late video means the Wi-Fi carries less than the video's bitrate (README, Live).
-      parts.push(live.lag_s > 5 ? `<span class="warn">video ${Math.round(live.lag_s)} s late: slow Wi-Fi</span>`
-                                : `${live.lag_s.toFixed(1)} s behind`);
-    parts.push(`${live.clips_written} entries`);
-    if (live.dropped) parts.push(`<span class="warn">${live.dropped} clips dropped</span>`);
-    if (recordingNote()) parts.push(recordingNote());
+  if (streaming()) {
+    // Only "Live" and how far behind: at the stand the photo rate, entries and
+    // recording made too much text (16 Nov 2026). A warning only when the pictures
+    // stop (the phone sends a diary photo every ~1.9 s, hence its longer wait) or
+    // come more than 5 s late.
+    const phone = live.via === "phone";
+    const parts = [`<b class="dot">●</b> Live`];
+    if (live.video_age_s !== null && live.video_age_s > (phone ? 6 : 3))
+      parts.push(`<span class="warn">no ${phone ? "photo" : "video"} for ${Math.round(live.video_age_s)} s</span>`);
+    else if (live.lag_s !== null && live.lag_s !== undefined) {
+      const lag = Math.max(0, live.lag_s);  // the phone's clock may be a few ms ahead
+      parts.push(lag > 5 ? `<span class="warn">${Math.round(lag)} s behind</span>` : `${lag.toFixed(1)} s behind`);
+    }
     html = `<span>${parts.join(" · ")}</span>` + (stopping
       ? '<span class="muted">stopping: describing the clips already taken…</span>'
       : '<button class="chip" id="stopbtn">Stop</button>');
