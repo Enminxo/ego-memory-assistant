@@ -19,13 +19,19 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg);
        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center;
-         padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-h1 { font-size: 16px; margin: 0; font-weight: 650; display: flex; align-items: center; gap: 10px; }
-/* the round "Remembering for You × GTI" logo, at the right end of the header */
-.brand { width: 84px; height: 84px; flex: none; margin-block: -6px; }
+/* Header: a first row with the name centred and the round "Remembering for You × GTI"
+   logo at its right (the side columns match, so the name sits in the true centre),
+   then the scene tabs, the buttons and the memory mode. */
+header { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px 16px; align-items: center;
+         padding: 10px 16px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+h1 { grid-column: 2; margin: 0; text-align: center; text-wrap: balance;
+     font-size: clamp(20px, 2.4vw, 28px); line-height: 1.2; font-weight: 650; }
+.brand { grid-column: 3; justify-self: end; width: 84px; height: 84px; }
+header .bar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
 h1 .name { color: var(--fg); font-weight: 650; }
 h1 .name span { color: var(--dim); font-weight: 400; }
+@media (max-width: 560px) { header { grid-template-columns: 1fr auto; } h1 { grid-column: 1; text-align: left; }
+                            .brand { grid-column: 2; width: 64px; height: 64px; } }
 h1 span { color: var(--dim); font-weight: 400; }
 .tabs, .mode { display: flex; gap: 6px; flex-wrap: wrap; }
 .tabs button, .mode button, .chip {
@@ -125,15 +131,17 @@ body.live .live-note { display: flex; }
 <body>
 <header>
   <h1><span class="name">Dora <span>· memory assistant prototype</span></span></h1>
-  <div class="tabs" id="tabs"></div>
-  <button class="addtab" id="upbtn">+ Upload recording</button>
-  <button class="addtab" id="livebtn">● Go live</button>
-  <div class="mode" id="mode">
-    Memory:
-    <button data-mode="now" class="on">up to now</button>
-    <button data-mode="all">whole video</button>
-  </div>
   <img class="brand" src="/logo.png" alt="Remembering for You × GTI">
+  <div class="bar">
+    <div class="tabs" id="tabs"></div>
+    <button class="addtab" id="upbtn">+ Upload recording</button>
+    <button class="addtab" id="livebtn">● Go live</button>
+    <div class="mode" id="mode">
+      Memory:
+      <button data-mode="now" class="on">up to now</button>
+      <button data-mode="all">whole video</button>
+    </div>
+  </div>
 </header>
 <div class="panel upload" id="upload" hidden>
   <h2>Upload a recording</h2>
