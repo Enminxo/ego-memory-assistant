@@ -1,5 +1,6 @@
 """The phone relay, with a fake app, a fake ffmpeg and a voice that only listens."""
 
+import base64
 import json
 import os
 import sys
@@ -181,6 +182,27 @@ def test_the_latest_face_photo_and_the_voice(relay):
     with pytest.raises(urllib.error.HTTPError) as bad:
         post(relay.url + "/say", {})
     assert bad.value.code == 400
+
+
+def test_say_with_audio_plays_it_instead_of_speaking(tmp_path):
+    """Audio sent with the text goes to the player, not to Android's speech engine."""
+    said: list[str] = []
+    played: list[bytes] = []
+    relay = Relay(tmp_path / "relay", said.append, ffmpeg=None, play=played.append)
+    relay.start()
+    server = serve(relay, "127.0.0.1", 0)
+    url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        post(url + "/say", {"text": "Hola, Ana", "wav": base64.b64encode(b"RIFFwav").decode()})
+        post(url + "/say", {"text": "Hola, Luis"})  # no audio: the old way still works
+        wait_for(lambda: said == ["Hola, Luis"])
+        assert played == [b"RIFFwav"]
+        with pytest.raises(urllib.error.HTTPError) as bad:
+            post(url + "/say", {"text": "Hola", "wav": "not base64!"})
+        assert bad.value.code == 400
+    finally:
+        server.shutdown()
+        relay.close()
 
 
 def test_ffmpeg_is_restarted_when_it_dies_and_when_the_diary_rate_changes(tmp_path):

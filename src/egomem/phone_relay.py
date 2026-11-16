@@ -27,13 +27,14 @@ Only the standard library and Termux's ffmpeg, so that it runs as one file:
     POST /diary/stop
     GET  /latest.jpg   the newest face photo; X-Frame-Seq changes with each one
          /latest.jpg?after=<seq>   waits up to 2 s for a newer one, else 304
-    POST /say          {"text": "Hola, Ana"}
+    POST /say          {"text": "Hola, Ana"}, plus "wav" (base64) to play that audio instead
     GET  /status
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import math
 import os
@@ -125,6 +126,20 @@ def termux_speak(stream: str, lang: str, region: str) -> Callable[[str], None]:
     return speak
 
 
+def termux_play(stream: str, workdir: Path) -> Callable[[bytes], None]:
+    """Play a WAV through the phone's speaker with play-audio (pkg install play-audio).
+
+    It needs neither the Termux:API app nor Android's speech engine: on 2026-11-16
+    termux-tts-speak hung for good with both engines while toasts still worked, and
+    the greeting went silent. The sender synthesizes the voice and sends the audio.
+    """
+    def play(wav: bytes) -> None:
+        path = workdir / "say.wav"
+        path.write_bytes(wav)
+        subprocess.run(["play-audio", "-s", stream.lower(), str(path)], check=True, timeout=30)
+    return play
+
+
 class Relay:
     """ffmpeg kept running, the diary's uploads, and the voice, each in a thread.
 
@@ -133,8 +148,10 @@ class Relay:
 
     def __init__(self, workdir: Path, speak: Callable[[str], None], ffmpeg: str | None = "ffmpeg",
                  rtsp_url: str = RTSP_URL, face_fps: float = 3.0, face_width: int = 960,
-                 stall_sec: float = STALL_SEC, startup_sec: float = STARTUP_SEC) -> None:
+                 stall_sec: float = STALL_SEC, startup_sec: float = STARTUP_SEC,
+                 play: Callable[[bytes], None] | None = None) -> None:
         self.workdir = Path(workdir)
+        self.play = play
         self.diary_dir = self.workdir / "diary"
         self.face_path = self.workdir / "face" / "latest.jpg"
         self.speak = speak
@@ -150,7 +167,7 @@ class Relay:
         self.ffmpeg_error: str | None = None
         self.upload_error: str | None = None
         self.voice_error: str | None = None
-        self.voice: queue.Queue[str | None] = queue.Queue()
+        self.voice: queue.Queue[tuple[str, bytes | None] | None] = queue.Queue()
         self.lock = threading.Lock()
         self._proc: subprocess.Popen | None = None
         self._restart = threading.Event()
@@ -358,9 +375,15 @@ class Relay:
 
     def _speak_loop(self) -> None:
         """Say the texts one after another, so two greetings never talk over each other."""
-        while (text := self.voice.get()) is not None:
+        while (item := self.voice.get()) is not None:
+            text, wav = item
             try:
-                self.speak(text)
+                # audio sent with the text is played as it is; a bare text still
+                # goes to Android's speech engine
+                if wav is not None and self.play is not None:
+                    self.play(wav)
+                else:
+                    self.speak(text)
                 self.voice_error = None
             except Exception as exc:  # a voice that fails must not stop the relay
                 self.voice_error = repr(exc)
@@ -432,7 +455,8 @@ def make_handler(relay: Relay) -> type[BaseHTTPRequestHandler]:
                 elif path == "/diary/stop":
                     relay.diary_stop()
                 elif path == "/say":
-                    relay.voice.put(str(body["text"]))
+                    wav = base64.b64decode(body["wav"], validate=True) if body.get("wav") else None
+                    relay.voice.put((str(body["text"]), wav))
                 else:
                     self._reply(404, {"error": f"no {path} here"})
                     return
@@ -470,7 +494,8 @@ def main() -> None:
     args = parser.parse_args()
 
     relay = Relay(args.workdir, termux_speak(args.voice_stream, args.lang, args.region),
-                  rtsp_url=args.rtsp, face_fps=args.face_fps, face_width=args.face_width)
+                  rtsp_url=args.rtsp, face_fps=args.face_fps, face_width=args.face_width,
+                  play=termux_play(args.voice_stream, args.workdir))
     relay.start()
     server = serve(relay, args.bind, args.port)
     print(f"relay on http://{args.bind}:{args.port}  (Ctrl+C to stop)", flush=True)
