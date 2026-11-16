@@ -46,6 +46,12 @@ def test_endpoints(tmp_path):
     client.post("/api/ask", json={"scenario": "s", "question": "Where?"})
     assert len(reader.seen) == 3  # no t: whole diary
 
+    page = client.get("/").text
+    assert 'src="/logo.png"' in page
+    logo = client.get("/logo.png")
+    assert logo.status_code == 200 and logo.headers["content-type"] == "image/png"
+    assert logo.content[:8] == b"\x89PNG\r\n\x1a\n"
+
 
 def test_video_supports_range_requests(tmp_path):
     client, _ = make_app(tmp_path)

@@ -228,6 +228,11 @@ def create_app(config: dict, tag: str, reader: Reader | None = None,
     def index() -> FileResponse:
         return FileResponse(STATIC / "index.html")
 
+    @app.get("/logo.png")
+    def logo() -> FileResponse:
+        """The header's logo, "Remembering for You × GTI" (128 px)."""
+        return FileResponse(STATIC / "logo.png", media_type="image/png")
+
     @app.get("/api/scenarios")
     def list_scenarios() -> list[dict]:
         return [{"id": s.id, "title": s.title, "category": s.category,
