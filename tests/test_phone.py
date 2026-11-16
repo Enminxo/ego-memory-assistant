@@ -242,7 +242,11 @@ def test_the_live_view_shows_the_relays_quick_pictures_each_once(tmp_path):
         time.sleep(0.8)
         assert got == []  # no picture on the phone yet (the relay answers 503)
         for i in range(3):
-            relay.face_path.write_bytes(f"quick {i}".encode())
+            # whole, as ffmpeg's -atomic_writing leaves it: a half-written file read by
+            # the relay would count as one more picture (flaky under load, 16 Nov 2026)
+            staged = relay.face_path.with_suffix(".tmp")
+            staged.write_bytes(f"quick {i}".encode())
+            os.replace(staged, relay.face_path)
             wait_for(lambda: len(got) == i + 1)
             assert got[-1].endswith(f"quick {i}\r\n".encode())
         time.sleep(2.5)  # the relay's 2 s wait runs out: 304, nothing new is sent
