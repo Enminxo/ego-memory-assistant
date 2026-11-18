@@ -16,8 +16,6 @@ Details in the blog: [part 1](https://enminxo.github.io/log/remembering-for-you/
 - **The mistakes come in three kinds.** A small describer copies objects from its own prompt, both describers write down things that did not happen ("no medication was taken"), and what happens between two photos never reaches the diary.
 - **Keeping the diary is cheap; writing it is slow.** The diary grows by about one Word page every 4 minutes. The large describer needs about 10 s to write each 15 s of life.
 
-The code of that evaluation is on the [`worktree-describer-eval`](https://github.com/Enminxo/ego-memory-assistant/tree/worktree-describer-eval/experiments/describer_eval) branch.
-
 ## Try it
 
 A 66-second recording from the Neon glasses (walking to a window, pushing it shut, going through two doors) comes with the first release.
