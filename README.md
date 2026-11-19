@@ -4,6 +4,10 @@
 
 Camera glasses write a short text diary of your day, and you ask it about your recent past: "where did I leave my keys?", "did I turn off the stove?".
 
+One afternoon with the prototype, which I call Dora: what the glasses saw, the diary it wrote, and the evening questions answered from the diary alone (the last one is a miss).
+
+<!-- DORA_VIDEO: the github.com/user-attachments URL of dora-day-github.mp4 goes on this line -->
+
 ![The glasses' phone sends 8 photos every 15 seconds; a describer writes one diary line; a reader answers from the diary alone and cites the moment](assets/system.jpg)
 
 Every 15 seconds a vision-language model turns 8 photos into one diary line; a language model answers from the diary alone and cites the moment it used. It runs on recordings or live from [Pupil Labs Neon](https://pupil-labs.com/products/neon) glasses. The design and prompts follow Lando et al. ([2025](https://arxiv.org/abs/2506.16450), [2026](https://arxiv.org/abs/2602.22455)).
